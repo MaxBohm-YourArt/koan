@@ -8,6 +8,7 @@ Contains the per-iteration mission dispatch, retry, and execution logic:
 """
 
 import os
+from app.notify import NotificationPriority as _NP
 import subprocess
 import sys
 import tempfile
@@ -796,7 +797,7 @@ def _run_iteration(
     gh_missions = 0
     if github_enabled:
         if is_first_iteration:
-            _run._notify_raw(instance, "🔍 Scanning GitHub notifications (cold start, may take ~1 min)...")
+            _run._notify_raw(instance, "🔍 Scanning GitHub notifications (cold start, may take ~1 min)...", priority=_NP.INFO)
         from app.loop_manager import (
             process_github_notifications,
             was_github_notification_check_throttled,
@@ -821,13 +822,13 @@ def _run_iteration(
         if is_first_iteration:
             cold = " (cold start, may take ~1 min)"
             if github_enabled and gh_missions > 0:
-                _run._notify_raw(instance, f"📋 GitHub: {gh_missions} new mission(s) queued. Scanning Jira{cold}...")
+                _run._notify_raw(instance, f"📋 GitHub: {gh_missions} new mission(s) queued. Scanning Jira{cold}...", priority=_NP.INFO)
             elif is_boot_iteration and github_enabled:
-                _run._notify_raw(instance, f"📋 GitHub: scanned, no new missions. Scanning Jira{cold}...")
+                _run._notify_raw(instance, f"📋 GitHub: scanned, no new missions. Scanning Jira{cold}...", priority=_NP.INFO)
             else:
                 # Boot without GitHub, or resume from pause: emit a single
                 # cold-start banner so the human sees Jira IS being scanned.
-                _run._notify_raw(instance, f"🔍 Scanning Jira notifications{cold}...")
+                _run._notify_raw(instance, f"🔍 Scanning Jira notifications{cold}...", priority=_NP.INFO)
         from app.loop_manager import (
             process_jira_notifications,
             was_jira_notification_check_throttled,
@@ -843,13 +844,13 @@ def _run_iteration(
 
     if is_first_iteration:
         if jira_enabled and jira_missions > 0:
-            _run._notify_raw(instance, f"🎯 Jira: {jira_missions} new mission(s) queued. Picking first mission from queue...")
+            _run._notify_raw(instance, f"🎯 Jira: {jira_missions} new mission(s) queued. Picking first mission from queue...", priority=_NP.INFO)
         elif gh_missions > 0:
-            _run._notify_raw(instance, f"🎯 GitHub: {gh_missions} new mission(s) queued. Picking first mission from queue...")
+            _run._notify_raw(instance, f"🎯 GitHub: {gh_missions} new mission(s) queued. Picking first mission from queue...", priority=_NP.INFO)
         elif is_boot_iteration:
             # Empty-state message: only at actual boot. Suppress on resume to
             # avoid spamming the human after every /pause+/resume or auto-resume.
-            _run._notify_raw(instance, "🎯 Notifications clear. Picking first mission from queue...")
+            _run._notify_raw(instance, "🎯 Notifications clear. Picking first mission from queue...", priority=_NP.INFO)
 
     # Startup update hint: surface upstream commits to the user (48 h throttled)
     if is_boot_iteration:
