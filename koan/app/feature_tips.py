@@ -174,6 +174,13 @@ def maybe_send_feature_tip(instance_dir: str) -> bool:
     Called from interruptible_sleep(). No-op if called too frequently
     or if a tip was already sent during the current idle period.
     """
+    try:
+        from app.config import are_feature_tips_enabled
+        if not are_feature_tips_enabled():
+            return False
+    except Exception:
+        pass  # tips are cosmetic — never let a config read break the loop
+
     global _last_tip_time, _idle_tip_sent
 
     if _idle_tip_sent:

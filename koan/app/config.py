@@ -3380,6 +3380,22 @@ def is_rtk_mode() -> bool:
         return False
 
 
+def are_feature_tips_enabled() -> bool:
+    """Return ``True`` when unsolicited feature tips may be sent.
+
+    Gates ``feature_tips.maybe_send_feature_tip`` — the "Did you know? /skill …"
+    and "New skill available: …" messages pushed during idle periods. They are
+    unsolicited by nature, so an operator running a quiet sidecar needs a way to
+    turn them off. Default: ``True`` (unchanged behaviour).
+    """
+    cfg = _load_config() or {}
+    notif = cfg.get("notifications")
+    if isinstance(notif, dict):
+        raw = notif.get("feature_tips", True)
+        return bool(raw) if isinstance(raw, bool) else True
+    return True
+
+
 def is_rtk_awareness_enabled() -> bool:
     """Return ``True`` when the awareness section should ship in prompts.
 
