@@ -175,15 +175,41 @@ class SlackProvider(MessagingProvider):
             with self._send_lock:
                 self._apply_rate_limit()
 
-                kwargs = {"channel": self._channel_id, "text": chunk}
+                # Render through a Block Kit ``markdown`` block, not the plain
+                # ``text`` field. The text field is mrkdwn-only: standard
+                # Markdown from an LLM renders wrong there — **bold** shows
+                # literal asterisks, "*italic*" comes out bold, headings, tables
+                # and [links](url) render as raw characters. The markdown block
+                # accepts real Markdown and is documented for exactly this case
+                # ("you expect a markdown response from an LLM").
+                #
+                # ``text`` is still sent as the notification / accessibility
+                # fallback: mobile previews and screen readers read that field.
+                #
+                # Cumulative markdown-block budget is 12,000 chars per payload;
+                # chunks are DEFAULT_MAX_MESSAGE_SIZE (4000), so one block per
+                # call stays well inside it.
+                kwargs = {
+                    "channel": self._channel_id,
+                    "text": chunk,
+                    "blocks": [{"type": "markdown", "text": chunk}],
+                }
                 if thread_ts:
                     kwargs["thread_ts"] = thread_ts
                 try:
                     resp = self._web_client.chat_postMessage(**kwargs)
                     if not resp.get("ok"):
-                        print(f"[slack] API error: {resp.get('error', 'unknown')}",
+                        # Never lose a message to the newer block type — retry
+                        # once as plain text if the block was rejected.
+                        err = resp.get("error", "unknown")
+                        print(f"[slack] API error: {err}; retrying without blocks",
                               file=sys.stderr)
-                        ok = False
+                        retry = {k: v for k, v in kwargs.items() if k != "blocks"}
+                        resp = self._web_client.chat_postMessage(**retry)
+                        if not resp.get("ok"):
+                            print(f"[slack] API error on fallback: "
+                                  f"{resp.get('error', 'unknown')}", file=sys.stderr)
+                            ok = False
                 except Exception as e:
                     print(f"[slack] Send error: {e}", file=sys.stderr)
                     ok = False
