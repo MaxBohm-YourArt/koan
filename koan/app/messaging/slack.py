@@ -21,6 +21,7 @@ from typing import List, Optional
 
 from app.messaging.base import DEFAULT_MAX_MESSAGE_SIZE, Message, MessagingProvider, Update
 from app.messaging import register_provider
+from app.messaging.markdown_layout import lay_out_markdown
 
 
 # Rate limit: Slack allows ~1 msg/sec for chat.postMessage
@@ -170,8 +171,16 @@ class SlackProvider(MessagingProvider):
             with self._state_lock:
                 thread_ts = self._thread_by_token.get(reply_to_message_id, "")
 
+        # Lay out blank lines before chunking, not after: a chunk boundary must
+        # not land between a heading and the body it introduces, and the size
+        # accounting has to reflect the text actually sent. Missions author
+        # output for a plain-text file, where every newline breaks; Markdown
+        # treats a lone newline as a soft wrap and would render that as one
+        # dense paragraph. See app/messaging/markdown_layout.py.
+        laid_out = lay_out_markdown(text)
+
         ok = True
-        for chunk in self.chunk_message(text, max_size=MAX_MESSAGE_SIZE):
+        for chunk in self.chunk_message(laid_out, max_size=MAX_MESSAGE_SIZE):
             with self._send_lock:
                 self._apply_rate_limit()
 
