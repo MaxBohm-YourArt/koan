@@ -74,8 +74,19 @@ class TestSendMessage:
         provider._web_client.chat_postMessage.return_value = {"ok": True}
         assert provider.send_message("hello") is True
         provider._web_client.chat_postMessage.assert_called_once_with(
-            channel="C123", text="hello"
+            channel="C123",
+            text="hello",
+            blocks=[{"type": "markdown", "text": "hello"}],
         )
+
+    def test_multiline_text_is_laid_out_before_sending(self, provider):
+        """Markdown collapses lone newlines, so the send path must add the air."""
+        provider._web_client.chat_postMessage.return_value = {"ok": True}
+        assert provider.send_message("ACT TODAY\n- merge #463") is True
+        sent = provider._web_client.chat_postMessage.call_args.kwargs
+        assert sent["blocks"][0]["text"] == "ACT TODAY\n\n- merge #463"
+        # the notification fallback carries the same laid-out text
+        assert sent["text"] == "ACT TODAY\n\n- merge #463"
 
     def test_long_message_chunked(self, provider):
         provider._web_client.chat_postMessage.return_value = {"ok": True}
@@ -238,7 +249,10 @@ class TestHandleSocketEvent:
 
         assert provider.send_message("here you go", reply_to_message_id=token) is True
         provider._web_client.chat_postMessage.assert_called_once_with(
-            channel="C123", text="here you go", thread_ts="200.5"
+            channel="C123",
+            text="here you go",
+            blocks=[{"type": "markdown", "text": "here you go"}],
+            thread_ts="200.5",
         )
 
     def test_non_command_slash_in_middle_ignored(self, provider):
@@ -412,21 +426,28 @@ class TestThreadedSend:
 
         assert provider.send_message("reply", reply_to_message_id=token) is True
         provider._web_client.chat_postMessage.assert_called_once_with(
-            channel="C123", text="reply", thread_ts="100.5"
+            channel="C123",
+            text="reply",
+            blocks=[{"type": "markdown", "text": "reply"}],
+            thread_ts="100.5",
         )
 
     def test_unknown_token_posts_to_channel_root(self, provider):
         provider._web_client.chat_postMessage.return_value = {"ok": True}
         assert provider.send_message("hi", reply_to_message_id=4242) is True
         provider._web_client.chat_postMessage.assert_called_once_with(
-            channel="C123", text="hi"
+            channel="C123",
+            text="hi",
+            blocks=[{"type": "markdown", "text": "hi"}],
         )
 
     def test_no_reply_context_posts_to_channel_root(self, provider):
         provider._web_client.chat_postMessage.return_value = {"ok": True}
         assert provider.send_message("async note") is True
         provider._web_client.chat_postMessage.assert_called_once_with(
-            channel="C123", text="async note"
+            channel="C123",
+            text="async note",
+            blocks=[{"type": "markdown", "text": "async note"}],
         )
 
 
