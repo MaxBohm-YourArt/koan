@@ -39,7 +39,7 @@ nothing breaks: reports simply keep arriving as ordinary messages.
 |---|---|
 | `pointer` | Update the surface, then post a one-line message with the title and link. **Recommended** — surfaces are silent, so this is what actually notifies you (and reaches your phone). |
 | `silent` | Update the surface only. No message at all. Use when you'll go look on your own schedule. |
-| `full` | Update the surface *and* post the whole report as a message. Noisy by design — useful while you decide whether you like surfaces. |
+| `full` | Update the surface *and* post the whole report as a message, with a `— report surface updated` link appended. You get the glance *and* a click-through to confirm the surface really updated. Best while you are deciding whether you like surfaces. |
 
 ## Provider support
 

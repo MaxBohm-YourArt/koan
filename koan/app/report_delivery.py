@@ -14,6 +14,7 @@ the caller to send the report as an ordinary message instead.
 """
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -22,13 +23,26 @@ from app.messaging.report_surfaces import DEFAULT_STORE_NAME, ReportSurfaceStore
 from app.notify import NotificationPriority, send_telegram
 
 
+@dataclass(frozen=True)
+class ReportDelivery:
+    """Outcome of a report delivery attempt.
+
+    ``handled`` True means the report is fully delivered and the caller need do
+    nothing. False means the caller must still send the body as an ordinary
+    message — and should append ``footer`` to it, which carries the surface link
+    when a surface *was* in fact updated (``notify: full``).
+    """
+    handled: bool
+    footer: str = ""
+
+
 def deliver_report(
     key: str,
     title: str,
     body: str,
     *,
     priority: NotificationPriority = NotificationPriority.ACTION,
-) -> bool:
+) -> ReportDelivery:
     """Publish ``body`` to the report surface named ``key``.
 
     Args:
@@ -39,36 +53,44 @@ def deliver_report(
             not a notification and is never priority-filtered).
 
     Returns:
-        True if the report is fully delivered and the caller need do nothing
-        more. False means **the caller must still send ``body`` as an ordinary
-        message** — which covers both "no surface was available" (disabled,
-        unsupported, failed publish) and the deliberate ``notify: full`` mode,
-        where the surface *was* updated and the text is wanted as well.
+        A :class:`ReportDelivery`. ``handled=False`` obliges the caller to send
+        ``body`` as an ordinary message with ``footer`` appended — that covers
+        both "no surface was available" (disabled, unsupported, failed publish,
+        empty footer) and the deliberate ``notify: full`` mode, where the surface
+        *was* updated and the footer carries its link.
     """
     from app.config import get_report_notify_mode, get_report_surfaces_enabled
 
     if not get_report_surfaces_enabled():
-        return False
+        return ReportDelivery(handled=False)
 
     store = _store()
     known_id = store.get(key) if store is not None else None
 
     ref = _publish(key, title, body, known_id)
     if ref is None:
-        return False
+        return ReportDelivery(handled=False)
 
     if store is not None:
         store.put(ref.key, ref.surface_id, url=ref.url)
 
     mode = get_report_notify_mode()
     if mode == "silent":
-        return True
+        return ReportDelivery(handled=True)
     if mode == "full":
-        # Surface updated *and* the whole report posted — deliberately noisy,
-        # for operators migrating off message-only reports.
-        return False
+        # Surface updated *and* the whole report posted. The footer is what makes
+        # this mode auditable: without a link in the message there is no way to
+        # tell from Slack whether the surface actually updated.
+        return ReportDelivery(handled=False, footer=_canvas_footer(ref))
 
-    return _send_pointer(title, ref, priority)
+    return ReportDelivery(handled=_send_pointer(title, ref, priority))
+
+
+def _canvas_footer(ref: ReportRef) -> str:
+    """A one-line pointer to the surface, appended to a `full`-mode message."""
+    if not ref.url:
+        return ""
+    return f"\n\n— [report surface updated]({ref.url})"
 
 
 def _publish(
