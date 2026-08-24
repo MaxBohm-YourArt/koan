@@ -210,3 +210,23 @@ class TestFlushRouting:
             mgr.flush()
 
         assert deliver.call_args[0][2] == "merge https://gh/x/pull/463"
+
+
+class TestMarkerIndentTolerance:
+    """A prompt that renders the marker indented must still route (see the
+    regex comment) — the failure mode is a leaked `[report:…]` line in chat."""
+
+    @pytest.mark.parametrize("indent", ["", " ", "  ", "   "])
+    def test_up_to_three_leading_spaces_still_routes(self, indent):
+        key, title, body = parse_outbox_report(f"{indent}[report:ops-digest] T\nbody")
+        assert key == "ops-digest"
+        assert title == "T"
+        assert body == "body"
+
+    def test_four_leading_spaces_is_an_indented_code_block_not_a_marker(self):
+        key, _, _ = parse_outbox_report("    [report:ops-digest] T\nbody")
+        assert key is None
+
+    def test_a_tab_indent_is_not_a_marker(self):
+        key, _, _ = parse_outbox_report("\t[report:ops-digest] T\nbody")
+        assert key is None

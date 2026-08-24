@@ -146,7 +146,9 @@ priority (`_OUTBOX_PRIORITY_RE` in `outbox_manager.py`):
 ```
 
 `parse_outbox_report()` strips and returns `(key, title, body)`, mirroring
-`parse_outbox_priority()`. Absent marker, unsupported provider, or `reports.enabled:
+`parse_outbox_priority()`. It tolerates up to 3 leading spaces — the same allowance
+Markdown gives its own block constructs — so a mission prompt that renders the marker
+indented still routes instead of leaking a literal `[report:…]` line into chat. Absent marker, unsupported provider, or `reports.enabled:
 false` → the content flushes as an ordinary message, byte-for-byte as today. This keeps
 the whole feature a **routing decision at flush time**, with no new IPC surface between
 the two processes.
