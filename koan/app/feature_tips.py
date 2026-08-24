@@ -12,6 +12,7 @@ Throttled: at most once every 6 hours.
 """
 
 import random
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -178,8 +179,9 @@ def maybe_send_feature_tip(instance_dir: str) -> bool:
         from app.config import are_feature_tips_enabled
         if not are_feature_tips_enabled():
             return False
-    except Exception:
-        pass  # tips are cosmetic — never let a config read break the loop
+    # Tips are cosmetic — never let a config read break the loop, but say so.
+    except Exception as e:
+        print(f"[feature_tips] config read failed: {e}", file=sys.stderr)
 
     global _last_tip_time, _idle_tip_sent
 
