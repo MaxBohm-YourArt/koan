@@ -71,6 +71,48 @@ def parse_outbox_priority(content: str) -> Tuple[NotificationPriority, str]:
     return max_priority, cleaned
 
 
+# A report marker routes content to a persistent surface instead of the message
+# stream. Keys are lowercase by contract so ordinary prose mentioning
+# "[report:...]" is never mistaken for a directive.
+_OUTBOX_REPORT_RE = re.compile(
+    r'^\[report:([a-z0-9][a-z0-9._-]{0,63})\][ \t]*(.*)$\n?', re.MULTILINE,
+)
+
+
+def parse_outbox_report(content: str) -> Tuple[Optional[str], str, str]:
+    """Parse a ``[report:key] Title`` marker and strip every marker found.
+
+    Report markers are emitted by missions that produce a *snapshot* document
+    (the ops digest, PR reports, audits) rather than an event. See
+    ``specs/components/messaging.md`` — "Report surfaces".
+
+    The **first** marker wins when a single flush batches several blocks, which
+    keeps the routing decision deterministic; every marker is still stripped so
+    none can leak into a message the human reads.
+
+    Args:
+        content: Outbox content, priority headers already removed.
+
+    Returns:
+        ``(key, title, body)``. ``key`` is None when no marker is present, in
+        which case ``body`` is ``content`` unchanged. A marker with no title
+        falls back to a readable form of the key ("ops-digest" → "Ops Digest").
+    """
+    match = _OUTBOX_REPORT_RE.search(content)
+    if not match:
+        return None, "", content
+
+    key = match.group(1)
+    title = match.group(2).strip() or _title_from_key(key)
+    body = _OUTBOX_REPORT_RE.sub("", content).strip()
+    return key, title, body
+
+
+def _title_from_key(key: str) -> str:
+    """Derive a human-readable title from a report key."""
+    return key.replace("-", " ").replace("_", " ").title()
+
+
 class OutboxManager:
     """Manages the outbox file lifecycle: read, format, send, recover.
 
@@ -186,8 +228,28 @@ class OutboxManager:
             return
 
         priority, clean_content = parse_outbox_priority(content)
-        formatted = self._format_message(clean_content)
-        formatted = self._expand_github_refs(formatted, clean_content)
+
+        report_key, report_title, report_body = parse_outbox_report(clean_content)
+        if report_key:
+            # A report skips the AI formatter on BOTH paths: it is already a
+            # finished document, and re-prosing it would discard the structure
+            # the mission deliberately produced (see
+            # specs/components/messaging.md, "A report is never rewritten by the
+            # formatter"). Bare #123 refs are still expanded — that is enrichment,
+            # not rewriting, and a canvas benefits from it as much as a message.
+            report_body = self._expand_github_refs(report_body, report_body)
+            if self._deliver_report(report_key, report_title, report_body, priority):
+                # Deliberately not recorded in conversation history: a surface
+                # update is not something Kōan "said", and a full digest would
+                # crowd out real dialogue in the chat context window.
+                staging.unlink(missing_ok=True)
+                return
+            # Surface unavailable — send the report as an ordinary message.
+            clean_content = report_body
+            formatted = report_body
+        else:
+            formatted = self._format_message(clean_content)
+            formatted = self._expand_github_refs(formatted, clean_content)
         result = send_telegram(formatted, priority=priority)
 
         if result is NOTIFICATION_SUPPRESSED:
@@ -219,6 +281,29 @@ class OutboxManager:
             log("error", f"Outbox send failed — re-queuing for retry: {preview}")
             self.requeue(content)
             staging.unlink(missing_ok=True)
+
+    def _deliver_report(
+        self, key: str, title: str, body: str, priority: NotificationPriority
+    ) -> bool:
+        """Route a report to its persistent surface.
+
+        Returns False whenever the caller must still send ``body`` as an ordinary
+        message — surfaces disabled, provider without the capability, publish
+        failure, an unexpected error, or the deliberate ``notify: full`` mode. A
+        report is never dropped because a surface was unavailable.
+        """
+        try:
+            from app.report_delivery import deliver_report
+            delivered = bool(deliver_report(key, title, body, priority=priority))
+        # Broad by design: report delivery is best-effort decoration over the
+        # message path, and must never be able to lose outbox content.
+        except Exception as e:
+            log("error", f"Report delivery raised for '{key}' — sending as message: {e}")
+            return False
+
+        if delivered:
+            log("outbox", f"Report '{key}' published to channel surface")
+        return delivered
 
     def requeue(self, content: str):
         """Re-append content to outbox.md after a failed send attempt.

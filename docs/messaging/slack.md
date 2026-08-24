@@ -53,15 +53,19 @@ Then continue from Step 4 (Install to Workspace) to collect your tokens.
    | `chat:write` | Send messages and set the "thinking" status |
    | `reactions:write` | Acknowledge queued missions with a ✅ reaction (falls back to a text reply if missing) |
    | `assistant:write` | Show the assistant "thinking" status (optional; `chat:write` also works) |
+   | `canvases:write` | Publish reports to a channel canvas (optional; falls back to a plain message if missing — see [reports.md](reports.md)) |
    | `channels:history` | Read messages in public channels |
    | `groups:history` | Read messages in private channels |
    | `im:history` | Read direct messages |
    | `app_mentions:read` | Respond to @mentions |
 
-   > **Upgrading an existing app?** `reactions:write` is new. Add it under
-   > **OAuth & Permissions → Bot Token Scopes**, then **reinstall the app to
-   > your workspace** to grant the scope — without the reinstall `reactions.add`
-   > keeps failing and Kōan falls back to the text reply.
+   > **Upgrading an existing app?** `reactions:write` and `canvases:write` are
+   > newer than the original scope set. Add them under **OAuth & Permissions →
+   > Bot Token Scopes**, then **reinstall the app to your workspace** to grant
+   > them — without the reinstall `reactions.add` keeps failing (Kōan falls back
+   > to the text reply) and `canvases.create` keeps failing (Kōan falls back to
+   > posting the report as a message). Neither is fatal; you just don't get the
+   > feature.
 
 3. Go to **Event Subscriptions** → Enable Events
 4. Under **Subscribe to bot events**, add:

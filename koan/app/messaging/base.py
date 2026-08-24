@@ -39,6 +39,19 @@ class Update:
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class ReportRef:
+    """Handle to a persistent report surface in the channel.
+
+    A *report surface* is a named, updatable document (a Slack canvas, a pinned
+    Telegram message, a replaced Matrix event) that reports are republished into
+    rather than appended to. See ``specs/components/messaging.md``.
+    """
+    key: str            # Stable operator-facing identifier, e.g. "ops-digest"
+    surface_id: str     # Provider-side id used to update the same surface again
+    url: str = ""       # Permalink, if the provider exposes one ("" if not)
+
+
 class MessagingProvider(ABC):
     """Abstract base class for messaging providers.
 
@@ -162,6 +175,44 @@ class MessagingProvider(ABC):
         applied. Default False keeps the text ack for existing providers.
         """
         return False
+
+    def publish_report(
+        self,
+        key: str,
+        title: str,
+        markdown: str,
+        surface_id: Optional[str] = None,
+    ) -> Optional[ReportRef]:
+        """Create or update a persistent, named document in the channel.
+
+        Reports are *snapshots*, not events: republishing under the same ``key``
+        MUST replace the surface's content, never append to it. That is the whole
+        point of the capability — a regenerated digest should not add scrollback
+        the human has to dig through.
+
+        Publishing a surface is typically **silent** (canvases and pins do not
+        notify), so callers are expected to also send a short pointer message
+        through ``send_message`` when they want the human to know.
+
+        Args:
+            key: Stable identifier for this report (e.g. "ops-digest"). Same key
+                → same surface.
+            title: Human-readable surface title.
+            markdown: Report body as Markdown. Providers translate to their own
+                markup; callers never pass provider-specific formatting.
+            surface_id: The id previously returned for this ``key``, if the
+                caller has one. Providers update that surface when it is still
+                valid and **create a fresh one when it is not** — a stale id is
+                never an error, because ids are a cache and not truth. Providers
+                hold no persistent state of their own.
+
+        Returns:
+            A ``ReportRef`` on success, or ``None`` if this provider has no
+            persistent surface (or the attempt failed). ``None`` obliges the
+            caller to fall back to ``send_message`` with the full report text —
+            a report is never dropped because a surface was unavailable.
+        """
+        return None  # No-op by default; providers override if supported
 
     def chunk_message(self, text: str, max_size: int = DEFAULT_MAX_MESSAGE_SIZE) -> List[str]:
         """Split a message into chunks respecting the provider's size limit.

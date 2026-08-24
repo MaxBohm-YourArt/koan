@@ -546,3 +546,115 @@ class TestAddReaction:
         provider._queue_update("hello", event, {"event": event})
         token = next(iter(provider._ts_by_token))
         assert provider._ts_by_token[token] == "1700000000.000200"
+
+
+class TestPublishReport:
+    """Canvas-backed report surfaces (see specs/components/messaging.md)."""
+
+    @staticmethod
+    def _created(provider, canvas_id="F123", permalink="https://slack/docs/F123"):
+        provider._web_client.canvases_create.return_value = {
+            "ok": True, "canvas_id": canvas_id,
+        }
+        provider._web_client.files_info.return_value = {
+            "ok": True, "file": {"permalink": permalink},
+        }
+
+    def test_creates_a_canvas_when_no_surface_is_known(self, provider):
+        self._created(provider)
+        ref = provider.publish_report("ops-digest", "Ops Digest", "## Body")
+
+        assert ref is not None
+        assert ref.key == "ops-digest"
+        assert ref.surface_id == "F123"
+        assert ref.url == "https://slack/docs/F123"
+        provider._web_client.canvases_create.assert_called_once()
+        provider._web_client.canvases_edit.assert_not_called()
+
+    def test_create_passes_title_and_markdown(self, provider):
+        self._created(provider)
+        provider.publish_report("ops-digest", "Ops Digest", "## Body")
+
+        kwargs = provider._web_client.canvases_create.call_args.kwargs
+        assert kwargs["title"] == "Ops Digest"
+        assert kwargs["document_content"] == {"type": "markdown", "markdown": "## Body"}
+
+    def test_updates_in_place_when_a_surface_id_is_supplied(self, provider):
+        provider._web_client.canvases_edit.return_value = {"ok": True}
+        provider._web_client.files_info.return_value = {
+            "ok": True, "file": {"permalink": "https://slack/docs/F9"},
+        }
+        ref = provider.publish_report("ops-digest", "Ops Digest", "new", surface_id="F9")
+
+        assert ref.surface_id == "F9"
+        provider._web_client.canvases_create.assert_not_called()
+        provider._web_client.canvases_edit.assert_called_once()
+
+    def test_update_replaces_rather_than_appends(self, provider):
+        """A report is a snapshot — republishing must never grow the document."""
+        provider._web_client.canvases_edit.return_value = {"ok": True}
+        provider.publish_report("ops-digest", "T", "fresh", surface_id="F9")
+
+        kwargs = provider._web_client.canvases_edit.call_args.kwargs
+        assert kwargs["canvas_id"] == "F9"
+        assert len(kwargs["changes"]) == 1
+        assert kwargs["changes"][0]["operation"] == "replace"
+        assert kwargs["changes"][0]["document_content"]["markdown"] == "fresh"
+
+    def test_stale_surface_id_recreates_the_canvas(self, provider):
+        """A deleted canvas is recoverable, never a failure."""
+        from slack_sdk.errors import SlackApiError
+        provider._web_client.canvases_edit.side_effect = SlackApiError(
+            "canvas_not_found", {"error": "canvas_not_found"},
+        )
+        self._created(provider, canvas_id="FNEW")
+
+        ref = provider.publish_report("ops-digest", "T", "body", surface_id="FGONE")
+
+        assert ref is not None
+        assert ref.surface_id == "FNEW"
+        provider._web_client.canvases_create.assert_called_once()
+
+    def test_missing_scope_returns_none_so_caller_falls_back(self, provider):
+        from slack_sdk.errors import SlackApiError
+        provider._web_client.canvases_create.side_effect = SlackApiError(
+            "missing_scope", {"error": "missing_scope"},
+        )
+        assert provider.publish_report("ops-digest", "T", "body") is None
+
+    def test_create_without_canvas_id_returns_none(self, provider):
+        provider._web_client.canvases_create.return_value = {"ok": True}
+        assert provider.publish_report("ops-digest", "T", "body") is None
+
+    def test_unexpected_error_returns_none(self, provider):
+        provider._web_client.canvases_create.side_effect = RuntimeError("boom")
+        assert provider.publish_report("ops-digest", "T", "body") is None
+
+    def test_permalink_lookup_failure_still_publishes(self, provider):
+        """The canvas is what matters; a missing files:read scope is cosmetic."""
+        from slack_sdk.errors import SlackApiError
+        provider._web_client.canvases_create.return_value = {
+            "ok": True, "canvas_id": "F123",
+        }
+        provider._web_client.files_info.side_effect = SlackApiError(
+            "missing_scope", {"error": "missing_scope"},
+        )
+        ref = provider.publish_report("ops-digest", "T", "body")
+
+        assert ref is not None
+        assert ref.surface_id == "F123"
+        assert ref.url == ""
+
+    def test_unconfigured_provider_returns_none(self, provider):
+        provider._web_client = None
+        assert provider.publish_report("ops-digest", "T", "body") is None
+
+    def test_stale_id_then_failed_recreate_returns_none(self, provider):
+        from slack_sdk.errors import SlackApiError
+        provider._web_client.canvases_edit.side_effect = SlackApiError(
+            "canvas_not_found", {"error": "canvas_not_found"},
+        )
+        provider._web_client.canvases_create.side_effect = SlackApiError(
+            "missing_scope", {"error": "missing_scope"},
+        )
+        assert provider.publish_report("k", "T", "b", surface_id="FGONE") is None
