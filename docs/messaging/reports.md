@@ -14,8 +14,16 @@ value once today's exists — yet the chat-message model pushes every regenerati
 into new scrollback, so finding the current one means scrolling past all the old
 ones.
 
-A **report surface** fixes that: a persistent, named document in the channel that
-Kōan *overwrites* on each run. Same link every day, always showing the latest.
+A **report surface** fixes that: Kōan publishes the report as a first-class rendered
+artifact instead of pasting it as text. A collapsed card you click is less noise than 25
+lines of Markdown, and it renders properly.
+
+There are two shapes, and they optimise for opposite things:
+
+| Shape | What a run does | Best when |
+|---|---|---|
+| **`upload`** (default) | Uploads `<key>-<date>.md`, shared to the channel. Never overwrites. | You want **history** — every past run stays readable as its own card. Works on **every Slack plan**. |
+| **`canvas`** | Replaces one canvas per report key, in place. | You want **one permanent link** that is always today's. Needs a **paid** Slack plan. |
 
 This is off by default. Nothing changes until you enable it.
 
@@ -26,6 +34,7 @@ This is off by default. Nothing changes until you enable it.
 messaging:
   reports:
     enabled: true       # default: false
+    surface: upload     # upload (default) | canvas
     notify: pointer     # pointer (default) | silent | full
 ```
 
@@ -33,7 +42,11 @@ Then grant your provider's permission — for Slack, the `canvases:write` scope,
 followed by **reinstalling the app** (see [slack.md](slack.md) Step 3). Without it
 nothing breaks: reports simply keep arriving as ordinary messages.
 
-> **Slack Free plan:** this needs a **paid** Slack plan. Kōan creates a *standalone*
+> **Slack Free plan:** the default `upload` shape works on every plan — it needs only
+> `files:write`, which Kōan already has. The paid-plan note below applies to
+> `surface: canvas` only.
+
+> **`surface: canvas` needs a paid Slack plan.** Kōan creates a *standalone*
 > canvas, and per Slack's own documentation "channel and direct message (DM) canvases
 > are available on all plans, while standalone canvases are only available on paid
 > plans." On a Free workspace `canvases.create` fails and every report falls back to an
@@ -42,6 +55,11 @@ nothing breaks: reports simply keep arriving as ordinary messages.
 > per channel, since a channel has exactly one channel canvas.
 
 ### `notify` modes
+
+With `surface: upload` the artifact card **is** the channel message, so `pointer` posts
+nothing extra and `silent` cannot be honoured — suppressing the card would make the
+artifact invisible. The table below describes `canvas`; for `upload`, only `full` differs
+from the default.
 
 | Mode | Behaviour |
 |---|---|
@@ -73,11 +91,11 @@ Prefix the outbox content with a `[report:<key>]` marker and an optional title:
 - my-toolkit#463 — approved, green: merge it.
 ```
 
-- **`<key>`** is a stable, lowercase identifier. The *same key always lands on the
-  same surface*, which is what makes the report update rather than accumulate.
-  Use a new key for a genuinely different report (`ops-digest`, `pr-report`,
-  `security-audit`), never a dated one like `ops-digest-2026-08-24` — that would
-  create a new surface every day and defeat the point.
+- **`<key>`** is a stable, lowercase identifier naming the *report*, not the run. Use a
+  new key for a genuinely different report (`ops-digest`, `pr-report`,
+  `security-audit`), never a dated one like `ops-digest-2026-08-24`. Under `upload` the
+  date is added to the filename for you; under `canvas` the key is what makes the run
+  replace yesterday's rather than pile up beside it.
 - **The title** is optional; without it the key is used (`ops-digest` → "Ops
   Digest").
 - The marker composes with `[priority:…]`, which still governs the pointer
@@ -96,7 +114,8 @@ ordinary message:
 | `reports.enabled: false` | Plain message (the default) |
 | Provider has no surface support | Plain message |
 | Scope missing / not reinstalled | Plain message, error logged |
-| Slack Free plan (no standalone canvases) | Plain message, error logged |
+| `surface: canvas` on a Slack Free plan | Plain message, error logged |
+| Upload rejected (`files:write` missing) | Plain message, error logged |
 | Stored surface deleted by a human | A fresh surface is created |
 | Publish fails for any other reason | Plain message, error logged |
 

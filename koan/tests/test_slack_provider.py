@@ -551,6 +551,11 @@ class TestAddReaction:
 class TestPublishReport:
     """Canvas-backed report surfaces (see specs/components/messaging.md)."""
 
+    @pytest.fixture(autouse=True)
+    def _canvas_shape(self, provider):
+        """These cover the `canvas` shape; `upload` is now the default."""
+        provider._report_surface = "canvas"
+
     @staticmethod
     def _created(provider, canvas_id="F123", permalink="https://slack/docs/F123"):
         provider._web_client.canvases_create.return_value = {
@@ -664,6 +669,11 @@ class TestCanvasSharing:
     """A bot-created canvas is private to the bot (`access: owner`, no channels)
     until explicitly shared — without this the pointer link is dead."""
 
+    @pytest.fixture(autouse=True)
+    def _canvas_shape(self, provider):
+        """These cover the `canvas` shape; `upload` is now the default."""
+        provider._report_surface = "canvas"
+
     @staticmethod
     def _created(provider, canvas_id="F123"):
         provider._web_client.canvases_create.return_value = {
@@ -710,3 +720,94 @@ class TestCanvasSharing:
         provider._channel_id = ""
         provider.publish_report("ops-digest", "T", "body")
         provider._web_client.canvases_access_set.assert_not_called()
+
+
+class TestUploadShape:
+    """`upload` shape: a dated .md artifact per run, never overwriting (see
+    specs/components/messaging.md — "There are two legitimate shapes")."""
+
+    @pytest.fixture
+    def uploader(self, provider):
+        provider._report_surface = "upload"
+        provider._web_client.files_upload_v2.return_value = {
+            "ok": True,
+            "file": {"id": "F_UP", "permalink": "https://slack/files/F_UP"},
+        }
+        return provider
+
+    def test_uploads_a_markdown_artifact(self, uploader):
+        ref = uploader.publish_report("ops-digest", "Ops Digest — 2026-08-24", "## Body")
+
+        assert ref is not None
+        assert ref.key == "ops-digest"
+        assert ref.surface_id == "F_UP"
+        assert ref.url == "https://slack/files/F_UP"
+        uploader._web_client.canvases_create.assert_not_called()
+
+    def test_filename_is_dated_so_artifacts_never_collide(self, uploader):
+        uploader.publish_report("ops-digest", "Ops Digest — 2026-08-24", "## Body")
+        name = uploader._web_client.files_upload_v2.call_args.kwargs["filename"]
+        assert name.startswith("ops-digest-")
+        assert name.endswith(".md")
+
+    def test_body_is_uploaded_verbatim_as_content(self, uploader):
+        uploader.publish_report("ops-digest", "T", "## ACT TODAY\n\n- one")
+        kwargs = uploader._web_client.files_upload_v2.call_args.kwargs
+        assert kwargs["content"] == "## ACT TODAY\n\n- one"
+
+    def test_shared_to_the_channel_so_the_card_appears(self, uploader):
+        uploader.publish_report("ops-digest", "T", "body")
+        assert uploader._web_client.files_upload_v2.call_args.kwargs["channel"] == "C123"
+
+    def test_title_is_the_report_title(self, uploader):
+        uploader.publish_report("ops-digest", "Ops Digest — 2026-08-24", "body")
+        assert uploader._web_client.files_upload_v2.call_args.kwargs[
+            "title"] == "Ops Digest — 2026-08-24"
+
+    def test_a_prior_surface_id_is_never_reused(self, uploader):
+        """History is the point of this shape — no in-place replacement."""
+        ref = uploader.publish_report("ops-digest", "T", "body", surface_id="F_OLD")
+        assert ref.surface_id == "F_UP"
+        uploader._web_client.canvases_edit.assert_not_called()
+
+    def test_files_list_response_shape_is_handled(self, uploader):
+        """files_upload_v2 may return `files` rather than `file`."""
+        uploader._web_client.files_upload_v2.return_value = {
+            "ok": True, "files": [{"id": "F_L", "permalink": "https://slack/files/F_L"}],
+        }
+        ref = uploader.publish_report("ops-digest", "T", "body")
+        assert ref.surface_id == "F_L"
+
+    def test_upload_failure_returns_none_so_caller_falls_back(self, uploader):
+        from slack_sdk.errors import SlackApiError
+        uploader._web_client.files_upload_v2.side_effect = SlackApiError(
+            "missing_scope", {"error": "missing_scope"},
+        )
+        assert uploader.publish_report("ops-digest", "T", "body") is None
+
+    def test_response_without_a_file_id_returns_none(self, uploader):
+        uploader._web_client.files_upload_v2.return_value = {"ok": True}
+        assert uploader.publish_report("ops-digest", "T", "body") is None
+
+    def test_missing_permalink_still_publishes(self, uploader):
+        uploader._web_client.files_upload_v2.return_value = {
+            "ok": True, "file": {"id": "F_UP"},
+        }
+        ref = uploader.publish_report("ops-digest", "T", "body")
+        assert ref is not None
+        assert ref.url == ""
+
+    def test_canvas_shape_is_still_reachable(self, provider):
+        provider._report_surface = "canvas"
+        provider._web_client.canvases_create.return_value = {
+            "ok": True, "canvas_id": "F_C"}
+        provider._web_client.files_info.return_value = {
+            "ok": True, "file": {"permalink": "https://slack/docs/F_C"}}
+        ref = provider.publish_report("ops-digest", "T", "body")
+        assert ref.surface_id == "F_C"
+        provider._web_client.files_upload_v2.assert_not_called()
+
+    def test_upload_is_the_default_shape(self, provider):
+        """A fresh provider must not need config to pick the safe default."""
+        from app.messaging.slack import SlackProvider
+        assert SlackProvider()._report_surface == "upload"

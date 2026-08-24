@@ -59,7 +59,11 @@ def deliver_report(
         empty footer) and the deliberate ``notify: full`` mode, where the surface
         *was* updated and the footer carries its link.
     """
-    from app.config import get_report_notify_mode, get_report_surfaces_enabled
+    from app.config import (
+        get_report_notify_mode,
+        get_report_surface_kind,
+        get_report_surfaces_enabled,
+    )
 
     if not get_report_surfaces_enabled():
         return ReportDelivery(handled=False)
@@ -75,18 +79,23 @@ def deliver_report(
         store.put(ref.key, ref.surface_id, url=ref.url)
 
     mode = get_report_notify_mode()
-    if mode == "silent":
-        return ReportDelivery(handled=True)
     if mode == "full":
-        # Surface updated *and* the whole report posted. The footer is what makes
-        # this mode auditable: without a link in the message there is no way to
-        # tell from Slack whether the surface actually updated.
-        return ReportDelivery(handled=False, footer=_canvas_footer(ref))
+        # Surface published *and* the whole report posted. The footer is what
+        # makes this mode auditable: without a link in the message there is no
+        # way to tell from the channel whether the surface was really written.
+        return ReportDelivery(handled=False, footer=_surface_footer(ref))
+
+    if mode == "silent" or get_report_surface_kind() == "upload":
+        # `upload` shares its artifact to the channel, so the card already *is*
+        # the channel message — a pointer would post the same thing twice. This
+        # also means `silent` cannot be honoured for uploads: suppressing the
+        # card would make the artifact invisible.
+        return ReportDelivery(handled=True)
 
     return ReportDelivery(handled=_send_pointer(title, ref, priority))
 
 
-def _canvas_footer(ref: ReportRef) -> str:
+def _surface_footer(ref: ReportRef) -> str:
     """A one-line pointer to the surface, appended to a `full`-mode message."""
     if not ref.url:
         return ""
