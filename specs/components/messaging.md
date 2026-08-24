@@ -88,25 +88,51 @@ Current coverage (informative, not normative — providers may add overrides at 
 > `docs/design/spec-changes-are-architectural.md`). Slack is the first implementation;
 > the other three intentionally inherit the `None` default until someone needs them.
 
-A **report surface** is a persistent, named, updatable document attached to the channel.
-It exists because koan's recurring reports (the ops digest, `/report`, audits) are
-*snapshots*, not events: yesterday's digest has no value once today's exists, yet the
-chat-message model forces every regeneration into new scrollback the human must
-archaeologise. Every supported platform has a primitive for this:
+A **report surface** is a first-class rendered artifact in the channel, published in
+place of a chat message. It exists because koan's recurring reports (the ops digest,
+`/report`, audits) are *documents*, not events: pasting 25 lines of Markdown into a
+channel every morning renders badly and buries the current one under the old ones.
 
-| Provider | Surface | Requirement |
+There are two legitimate shapes, and they optimize for opposite things. A provider
+declares which it implements; an operator may choose when a provider offers both.
+
+| Shape | Semantics | Optimizes for |
 |---|---|---|
-| Slack | standalone canvas (`canvases.create` / `canvases.edit` with a whole-document `replace`, shared via `canvases.access.set`) | `canvases:write`; `files:read` for the permalink only; **a paid Slack plan** — standalone canvases are not available on Free, though channel/DM canvases are |
-| Telegram | pinned message (`editMessageText` + `pinChatMessage`) | admin rights to pin |
-| Discord | pinned message, or a thread's starter message | `MANAGE_MESSAGES` |
-| Matrix | replaced event (`m.replace`) + `m.room.pinned_events` | power level to pin |
+| **`upload`** | A new dated artifact per run. Never overwrites. | *History* — every past run stays readable as its own card. |
+| **`canvas`** | One document per key, replaced in place. | *Currency* — one permanent link that is always today's. |
+
+Neither is the default for all time: `upload` is the better default because it works on
+every plan, renders, and cannot destroy history, and because a collapsed artifact card is
+*less* channel noise than the report text it replaces. `canvas` is right when a stable
+link matters more than the archive.
+
+Platform primitives for each shape:
+
+| Provider | `upload` shape | `canvas` shape |
+|---|---|---|
+| Slack | `files.upload` of `<key>-<date>.md`, shared to the channel. Slack renders Markdown in its file viewer. Needs `files:write` (+ `files:read` for the permalink) and **works on every plan**. | standalone canvas (`canvases.create` / `canvases.edit` with a whole-document `replace`, shared read-only via `canvases.access.set`). Needs `canvases:write` and **a paid plan** — standalone canvases are not available on Free. |
+| Telegram | document upload (`sendDocument`) | pinned message (`editMessageText` + `pinChatMessage`), needs pin rights |
+| Discord | file attachment | pinned message, or a thread's starter message (`MANAGE_MESSAGES`) |
+| Matrix | `m.file` event | replaced event (`m.replace`) + `m.room.pinned_events` |
+
+Only Slack implements either shape today; the rest inherit the `None` default and fall
+back to a message. **`files.*` has no edit-content method** (`files.upload` creates,
+`files.delete` removes — there is no `files.edit`), which is *why* `upload` is inherently
+dated-new rather than replace-in-place. That is a platform constraint, not a design
+choice.
 
 ### Invariants
 
-- **Idempotent by key.** `key` is a stable, operator-facing identifier
-  (`ops-digest`). Publishing the same key **replaces** the surface's content. A report
-  surface is never appended to — that would recreate the scrollback problem it exists
-  to solve.
+- **`key` names the report, not the artifact.** `key` is a stable, operator-facing
+  identifier (`ops-digest`) that groups every run of the same report. What a republish
+  does with it is **shape-dependent**, and callers MUST NOT assume either:
+  - `canvas` — replaces that key's single document in place. Never appends: appending
+    would recreate the scrollback problem the capability exists to solve.
+  - `upload` — creates a new dated artifact and leaves prior ones untouched. History is
+    the point, so destroying it would defeat the shape.
+
+  A caller that needs one specific semantic must read the configured shape rather than
+  infer it from the return value.
 - **Never load-bearing.** A missing scope, revoked permission, or absent capability
   MUST degrade to `send_message` with the full report text. A report is **never
   dropped** because a surface was unavailable. Same fail-open rule as
@@ -121,17 +147,21 @@ archaeologise. Every supported platform has a primitive for this:
 - **Markdown in, always.** Callers pass Markdown; the provider translates. No
   caller ever passes Slack `mrkdwn`, Telegram HTML, or Matrix formatted bodies.
   `lay_out_markdown` applies before publishing, exactly as it does before sending.
-- **The channel still gets a message.** Publishing a surface does not by itself notify
-  anyone — canvases and pins are silent. Report delivery therefore emits a short
-  **pointer message** (title + link) through the normal `send_message` path, so
-  notifications, mobile, and priority filtering keep working. `messaging.reports.notify`
+- **The channel still learns about it.** Under `canvas` the publish is silent (canvases
+  and pins notify nobody), so delivery emits a short **pointer message** (title + link)
+  through the normal `send_message` path to keep notifications, mobile and priority
+  filtering working. Under `upload` the shared artifact card **is** a channel message, so
+  no pointer is needed and `silent` is not achievable — the card cannot be suppressed
+  without making the artifact invisible. `messaging.reports.notify`
   selects `pointer` (default) / `silent` / `full`.
 - **Surface IDs are cache, not truth.** The `key → surface_id` map persists to
   `instance/.report-surfaces.json` via `utils.atomic_write()`, owned by
-  `report_delivery.py` and passed *into* the provider. If a stored ID is gone (deleted
-  canvas, unpinned message), the provider creates a fresh surface and returns the new ID
-  for the caller to record. A lost ID is never a failure, and no provider persists state
-  of its own.
+  `report_delivery.py` and passed *into* the provider. Under `canvas` it is what makes a
+  republish land on the same document; if a stored ID is gone (deleted canvas, unpinned
+  message) the provider creates a fresh surface and returns the new ID to record. Under
+  `upload` nothing is reused — the entry simply records the most recent artifact, which
+  is what the pointer link refers to. Either way a lost ID is never a failure, and no
+  provider persists state of its own.
 - **A report is never rewritten by the formatter.** Outbound messages normally pass
   through `notify.py`'s AI formatter (`_format_message`). Report bodies MUST bypass it —
   on the surface path *and* on the text-fallback path. A report is already a finished

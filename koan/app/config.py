@@ -3410,3 +3410,28 @@ def get_report_notify_mode() -> str:
             if mode in ("pointer", "silent", "full"):
                 return mode
     return "pointer"
+
+
+def get_report_surface_kind() -> str:
+    """Which report-surface shape a provider should publish.
+
+    Config key: messaging.reports.surface (one of: upload, canvas)
+
+    - ``upload`` (default) — a new dated artifact per run, never overwriting.
+      Works on every Slack plan, renders in Slack's Markdown viewer, and keeps
+      every past run readable as its own card.
+    - ``canvas`` — one document per report key, replaced in place. One permanent
+      link that is always current, at the cost of the per-run archive. Needs a
+      paid Slack plan.
+
+    See ``specs/components/messaging.md`` — "Report surfaces".
+    """
+    config = _load_config()
+    messaging_cfg = config.get("messaging", {})
+    if isinstance(messaging_cfg, dict):
+        reports_cfg = messaging_cfg.get("reports", {})
+        if isinstance(reports_cfg, dict) and "surface" in reports_cfg:
+            kind = str(reports_cfg["surface"]).strip().lower()
+            if kind in ("upload", "canvas"):
+                return kind
+    return "upload"

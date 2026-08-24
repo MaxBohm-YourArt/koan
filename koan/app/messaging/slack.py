@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 from collections import OrderedDict
+from datetime import datetime
 from typing import List, Optional
 
 from app.messaging.base import (
@@ -64,6 +65,11 @@ class SlackProvider(MessagingProvider):
         self._web_client = None
         self._socket_client = None
         self._bot_user_id: str = ""
+        # Report-surface shape: "upload" (dated artifact per run, every plan) or
+        # "canvas" (one document replaced in place, paid plans). Resolved from
+        # config in configure(); defaults to the safe, plan-agnostic shape so a
+        # provider is usable before configure() runs.
+        self._report_surface: str = "upload"
 
         # Thread-safe message buffer for poll_updates()
         self._message_queue: queue.Queue = queue.Queue()
@@ -130,6 +136,13 @@ class SlackProvider(MessagingProvider):
         except Exception as e:
             print(f"[slack] Auth test failed: {e}", file=sys.stderr)
             return False
+
+        try:
+            from app.config import get_report_surface_kind
+            self._report_surface = get_report_surface_kind()
+        except Exception as e:
+            print(f"[slack] report surface config unreadable, using 'upload': {e}",
+                  file=sys.stderr)
 
         # Set up Socket Mode client
         self._socket_client = SocketModeClient(
@@ -286,6 +299,9 @@ class SlackProvider(MessagingProvider):
         if not self._web_client:
             return None
 
+        if self._report_surface == "upload":
+            return self._upload_report(key, title, markdown)
+
         canvas_id = None
         if surface_id:
             canvas_id = self._replace_canvas_content(surface_id, markdown)
@@ -297,6 +313,62 @@ class SlackProvider(MessagingProvider):
             return None
 
         return ReportRef(key=key, surface_id=canvas_id, url=self._canvas_url(canvas_id))
+
+    def _upload_report(
+        self, key: str, title: str, markdown: str
+    ) -> Optional[ReportRef]:
+        """Upload the report as a dated Markdown artifact shared to the channel.
+
+        Slack renders Markdown in its file viewer, and `files.*` has **no**
+        edit-content method — `files.upload` creates, `files.delete` removes,
+        there is no `files.edit`. So this shape is inherently dated-new rather
+        than replace-in-place, which is also the point: every past run stays
+        readable as its own card. Any ``surface_id`` the caller knows is
+        therefore ignored.
+
+        Sharing to the channel is what produces the card, so the upload doubles
+        as the channel notification — no separate pointer message is needed.
+        """
+        filename = f"{key}-{datetime.now().strftime('%Y-%m-%d')}.md"
+        try:
+            resp = self._web_client.files_upload_v2(
+                content=markdown,
+                filename=filename,
+                title=title,
+                channel=self._channel_id or None,
+            )
+        except Exception as e:
+            print(f"[slack] files_upload_v2 failed ({filename}): {e} "
+                  f"— is files:write granted?", file=sys.stderr)
+            return None
+
+        uploaded = self._uploaded_file(resp)
+        file_id = uploaded.get("id") if uploaded else None
+        if not file_id:
+            print(f"[slack] files_upload_v2 returned no file id "
+                  f"(error: {resp.get('error', 'none')})", file=sys.stderr)
+            return None
+
+        return ReportRef(
+            key=key,
+            surface_id=str(file_id),
+            url=str(uploaded.get("permalink", "") or ""),
+        )
+
+    @staticmethod
+    def _uploaded_file(resp) -> dict:
+        """Extract the uploaded file from either response shape.
+
+        ``files_upload_v2`` returns ``file`` for a single upload and ``files``
+        for a batch, depending on SDK version and call shape.
+        """
+        single = resp.get("file")
+        if isinstance(single, dict):
+            return single
+        batch = resp.get("files")
+        if isinstance(batch, list) and batch and isinstance(batch[0], dict):
+            return batch[0]
+        return {}
 
     def _replace_canvas_content(self, canvas_id: str, markdown: str) -> Optional[str]:
         """Replace an existing canvas's whole content.

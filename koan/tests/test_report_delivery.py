@@ -23,9 +23,13 @@ def env(tmp_path, monkeypatch):
 def _run(provider, *, enabled=True, mode="pointer", key="ops-digest",
          title="Ops Digest", body="## Body"):
     from app.report_delivery import deliver_report
+    # Pinned to `canvas`: these cases were written for the shape whose publish is
+    # silent and therefore needs a pointer message. `upload` is covered by
+    # TestUploadShapeDelivery.
     with patch("app.messaging.get_messaging_provider", return_value=provider), \
          patch("app.config.get_report_surfaces_enabled", return_value=enabled), \
          patch("app.config.get_report_notify_mode", return_value=mode), \
+         patch("app.config.get_report_surface_kind", return_value="canvas"), \
          patch("app.report_delivery.send_telegram", return_value=True) as send:
         result = deliver_report(key, title, body, priority=NotificationPriority.ACTION)
     return result, send
@@ -160,3 +164,48 @@ class TestFullModeFooter:
         provider.publish_report.return_value = None
         result, _ = _run(provider)
         assert result.footer == ""
+
+
+def _run_kind(provider, kind, mode):
+    from app.report_delivery import deliver_report
+    with patch("app.messaging.get_messaging_provider", return_value=provider), \
+         patch("app.config.get_report_surfaces_enabled", return_value=True), \
+         patch("app.config.get_report_notify_mode", return_value=mode), \
+         patch("app.config.get_report_surface_kind", return_value=kind), \
+         patch("app.report_delivery.send_telegram", return_value=True) as send:
+        return deliver_report("ops-digest", "Ops Digest", "## Body"), send
+
+
+class TestUploadShapeDelivery:
+    """With `upload` the shared artifact card is already the channel message."""
+
+    def test_upload_pointer_posts_no_duplicate_message(self, env):
+        _, provider = env
+        result, send = _run_kind(provider, "upload", "pointer")
+        assert result.handled is True
+        send.assert_not_called()
+
+    def test_upload_silent_posts_nothing_extra(self, env):
+        _, provider = env
+        result, send = _run_kind(provider, "upload", "silent")
+        assert result.handled is True
+        send.assert_not_called()
+
+    def test_upload_full_still_asks_for_the_text_with_a_link(self, env):
+        _, provider = env
+        result, send = _run_kind(provider, "upload", "full")
+        assert result.handled is False
+        assert "https://slack/docs/F1" in result.footer
+
+    def test_canvas_pointer_still_posts_the_pointer(self, env):
+        """The canvas publish is silent, so it needs the message."""
+        _, provider = env
+        result, send = _run_kind(provider, "canvas", "pointer")
+        assert result.handled is True
+        send.assert_called_once()
+
+    def test_canvas_silent_posts_nothing(self, env):
+        _, provider = env
+        result, send = _run_kind(provider, "canvas", "silent")
+        assert result.handled is True
+        send.assert_not_called()

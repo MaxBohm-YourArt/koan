@@ -402,7 +402,13 @@ contemplative_chance: 10
 # messaging:
 #   reports:
 #     enabled: false      # true to publish to a channel surface
+#     surface: upload     # upload = a dated <key>-<date>.md card per run; never
+#                         #          overwrites, renders in Slack, works on every plan
+#                         # canvas = one document per report key, replaced in place;
+#                         #          one permanent link, needs a PAID Slack plan
 #     notify: pointer     # pointer (title + link) | silent | full
+#                         # With surface: upload the card is already the channel
+#                         # message, so only `full` changes anything.
 
 # Telegram
 # NOTE: Prefer setting these in .env (KOAN_TELEGRAM_TOKEN, KOAN_TELEGRAM_CHAT_ID)
