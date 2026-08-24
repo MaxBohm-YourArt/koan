@@ -31,9 +31,15 @@ class ReportDelivery:
     nothing. False means the caller must still send the body as an ordinary
     message — and should append ``footer`` to it, which carries the surface link
     when a surface *was* in fact updated (``notify: full``).
+
+    ``published`` is independent of both: it records whether a surface was
+    written at all. Without it, ``upload`` + ``full`` — which sets ``handled``
+    False and an empty ``footer`` — would be indistinguishable from "no surface
+    available", leaving a successful publish invisible in the log.
     """
     handled: bool
     footer: str = ""
+    published: bool = False   # True when a surface was actually written
 
 
 def deliver_report(
@@ -86,16 +92,18 @@ def deliver_report(
         # the link. Under `upload` the artifact card is posted right beside the
         # message and already carries it, so a footer would just duplicate it.
         footer = "" if kind == "upload" else _surface_footer(ref)
-        return ReportDelivery(handled=False, footer=footer)
+        return ReportDelivery(handled=False, footer=footer, published=True)
 
     if mode == "silent" or kind == "upload":
         # `upload` shares its artifact to the channel, so the card already *is*
         # the channel message — a pointer would post the same thing twice. This
         # also means `silent` cannot be honoured for uploads: suppressing the
         # card would make the artifact invisible.
-        return ReportDelivery(handled=True)
+        return ReportDelivery(handled=True, published=True)
 
-    return ReportDelivery(handled=_send_pointer(title, ref, priority))
+    return ReportDelivery(
+        handled=_send_pointer(title, ref, priority), published=True,
+    )
 
 
 def _surface_footer(ref: ReportRef) -> str:
