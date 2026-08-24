@@ -78,14 +78,17 @@ def deliver_report(
     if store is not None:
         store.put(ref.key, ref.surface_id, url=ref.url)
 
+    kind = get_report_surface_kind()
     mode = get_report_notify_mode()
     if mode == "full":
-        # Surface published *and* the whole report posted. The footer is what
-        # makes this mode auditable: without a link in the message there is no
-        # way to tell from the channel whether the surface was really written.
-        return ReportDelivery(handled=False, footer=_surface_footer(ref))
+        # Surface published *and* the whole report posted. Under `canvas` the
+        # footer is what makes this auditable — nothing else in the channel shows
+        # the link. Under `upload` the artifact card is posted right beside the
+        # message and already carries it, so a footer would just duplicate it.
+        footer = "" if kind == "upload" else _surface_footer(ref)
+        return ReportDelivery(handled=False, footer=footer)
 
-    if mode == "silent" or get_report_surface_kind() == "upload":
+    if mode == "silent" or kind == "upload":
         # `upload` shares its artifact to the channel, so the card already *is*
         # the channel message — a pointer would post the same thing twice. This
         # also means `silent` cannot be honoured for uploads: suppressing the
