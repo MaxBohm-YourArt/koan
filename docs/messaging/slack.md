@@ -53,7 +53,7 @@ Then continue from Step 4 (Install to Workspace) to collect your tokens.
    | `chat:write` | Send messages and set the "thinking" status |
    | `reactions:write` | Acknowledge queued missions with a ✅ reaction (falls back to a text reply if missing) |
    | `assistant:write` | Show the assistant "thinking" status (optional; `chat:write` also works) |
-   | `canvases:write` | Publish reports to a channel canvas (optional; falls back to a plain message if missing — see [reports.md](reports.md)) |
+   | `canvases:write` | Publish reports to a canvas (optional; needs a **paid** Slack plan, and falls back to a plain message if either is missing — see [reports.md](reports.md)) |
    | `channels:history` | Read messages in public channels |
    | `groups:history` | Read messages in private channels |
    | `im:history` | Read direct messages |

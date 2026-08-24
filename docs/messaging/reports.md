@@ -33,6 +33,14 @@ Then grant your provider's permission — for Slack, the `canvases:write` scope,
 followed by **reinstalling the app** (see [slack.md](slack.md) Step 3). Without it
 nothing breaks: reports simply keep arriving as ordinary messages.
 
+> **Slack Free plan:** this needs a **paid** Slack plan. Kōan creates a *standalone*
+> canvas, and per Slack's own documentation "channel and direct message (DM) canvases
+> are available on all plans, while standalone canvases are only available on paid
+> plans." On a Free workspace `canvases.create` fails and every report falls back to an
+> ordinary message — degraded, never broken. A future enhancement could fall back to a
+> *channel* canvas (free-plan-eligible), at the cost of supporting only one report key
+> per channel, since a channel has exactly one channel canvas.
+
 ### `notify` modes
 
 | Mode | Behaviour |
@@ -45,7 +53,7 @@ nothing breaks: reports simply keep arriving as ordinary messages.
 
 | Provider | Surface | Requires |
 |---|---|---|
-| Slack | Canvas, shared read-only with the channel | `canvases:write` (+ `files:read` for the link) |
+| Slack | Standalone canvas, shared read-only with the channel | `canvases:write` (+ `files:read` for the link) **and a paid Slack plan** |
 | Telegram | — | *not yet implemented; falls back to a message* |
 | Discord | — | *not yet implemented; falls back to a message* |
 | Matrix | — | *not yet implemented; falls back to a message* |
@@ -88,6 +96,7 @@ ordinary message:
 | `reports.enabled: false` | Plain message (the default) |
 | Provider has no surface support | Plain message |
 | Scope missing / not reinstalled | Plain message, error logged |
+| Slack Free plan (no standalone canvases) | Plain message, error logged |
 | Stored surface deleted by a human | A fresh surface is created |
 | Publish fails for any other reason | Plain message, error logged |
 

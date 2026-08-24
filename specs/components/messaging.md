@@ -96,7 +96,7 @@ archaeologise. Every supported platform has a primitive for this:
 
 | Provider | Surface | Requirement |
 |---|---|---|
-| Slack | canvas (`canvases.create` / `canvases.edit` with a whole-document `replace`, shared via `canvases.access.set`) | `canvases:write`; `files:read` for the permalink only |
+| Slack | standalone canvas (`canvases.create` / `canvases.edit` with a whole-document `replace`, shared via `canvases.access.set`) | `canvases:write`; `files:read` for the permalink only; **a paid Slack plan** — standalone canvases are not available on Free, though channel/DM canvases are |
 | Telegram | pinned message (`editMessageText` + `pinChatMessage`) | admin rights to pin |
 | Discord | pinned message, or a thread's starter message | `MANAGE_MESSAGES` |
 | Matrix | replaced event (`m.replace`) + `m.room.pinned_events` | power level to pin |
