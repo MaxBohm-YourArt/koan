@@ -567,3 +567,107 @@ class TestResolveForwardResultMarkersThreadSafety:
         assert all(r == ["/test"] for r in results)
 
         monkeypatch.setattr(mr, "_skill_registry_cache", None)
+
+
+class TestReportMarkerForwarding:
+    """A result carrying a `[report:key]` marker must reach the outbox even when
+    the mission is neither an alert nor an opt-in skill.
+
+    Without this, delivery depends on the agent remembering to write outbox.md
+    itself: observed working on one digest run and silently not on the next,
+    with the report lost and only a summary reaching the channel.
+    """
+
+    def test_report_marker_forwards_without_alert_or_opt_in(self):
+        from app.mission_runner import _should_forward_result
+        body = "[report:ops-digest] Ops Digest — 2026-08-24\n\n## ACT TODAY\n- one"
+        with patch(_MARKER_PATCH_TARGET, return_value=[]):
+            forward, alert = _should_forward_result("produce my morning digest", body)
+        assert forward is True
+        assert alert is False
+
+    def test_indented_marker_also_forwards(self):
+        from app.mission_runner import _should_forward_result
+        body = "  [report:ops-digest] T\n\nbody"
+        with patch(_MARKER_PATCH_TARGET, return_value=[]):
+            assert _should_forward_result("digest", body)[0] is True
+
+    def test_marker_mid_sentence_does_not_forward(self):
+        from app.mission_runner import _should_forward_result
+        body = "I mentioned the [report:ops-digest] syntax in passing."
+        with patch(_MARKER_PATCH_TARGET, return_value=[]):
+            assert _should_forward_result("digest", body)[0] is False
+
+    def test_ordinary_result_still_does_not_forward(self):
+        from app.mission_runner import _should_forward_result
+        with patch(_MARKER_PATCH_TARGET, return_value=[]):
+            assert _should_forward_result("digest", "Wrote the file, 22 lines.")[0] is False
+
+    def test_forwarded_report_keeps_the_marker_at_line_start(self, tmp_path):
+        """The routing regex is line-anchored — a same-line prefix would break it."""
+        from app.mission_runner import _notify_mission_result
+        stdout = tmp_path / "out.json"
+        body = "[report:ops-digest] Ops Digest — 2026-08-24\n\n## ACT TODAY\n- one"
+        _write_claude_stdout(stdout, body)
+        outbox = tmp_path / "outbox.md"
+
+        with patch(_MARKER_PATCH_TARGET, return_value=[]), \
+             patch("app.config.get_notify_mission_results", return_value=True):
+            _notify_mission_result(
+                "produce my morning digest", str(tmp_path), str(stdout),
+                start_time=0, exit_code=0, outbox_baseline_mtime=None,
+            )
+
+        written = outbox.read_text()
+        assert "[report:ops-digest]" in written
+        from app.outbox_manager import parse_outbox_report
+        from app.outbox_manager import parse_outbox_priority
+        _, clean = parse_outbox_priority(written)
+        key, title, report_body = parse_outbox_report(clean)
+        assert key == "ops-digest"
+        assert title == "Ops Digest — 2026-08-24"
+        assert "## ACT TODAY" in report_body
+
+    def test_forwarded_report_has_no_icon_or_prompt_echo(self, tmp_path):
+        """A report is self-describing; the ℹ️ + mission-title prefix would
+        prepend the whole prompt to the digest."""
+        from app.mission_runner import _notify_mission_result
+        stdout = tmp_path / "out.json"
+        _write_claude_stdout(stdout, "[report:ops-digest] T\n\n## ACT TODAY")
+        outbox = tmp_path / "outbox.md"
+        long_title = "produce my morning digest of the ArtMajeur org " * 4
+
+        with patch(_MARKER_PATCH_TARGET, return_value=[]), \
+             patch("app.config.get_notify_mission_results", return_value=True):
+            _notify_mission_result(
+                long_title, str(tmp_path), str(stdout),
+                start_time=0, exit_code=0, outbox_baseline_mtime=None,
+            )
+
+        written = outbox.read_text()
+        assert "ℹ️" not in written
+        assert "ArtMajeur org" not in written
+        # append_to_outbox prepends its own [priority:…] header; the report body
+        # must be the very first thing after it.
+        from app.outbox_manager import parse_outbox_priority
+        _, clean = parse_outbox_priority(written)
+        assert clean.startswith("[report:ops-digest]")
+
+    def test_agent_written_outbox_still_wins(self, tmp_path):
+        """Idempotency guard must survive: no double delivery."""
+        from app.mission_runner import _notify_mission_result
+        stdout = tmp_path / "out.json"
+        _write_claude_stdout(stdout, "[report:ops-digest] T\n\nbody")
+        outbox = tmp_path / "outbox.md"
+        outbox.write_text("the agent already wrote this\n")
+        os.utime(outbox, (time.time() + 50, time.time() + 50))
+
+        with patch(_MARKER_PATCH_TARGET, return_value=[]), \
+             patch("app.config.get_notify_mission_results", return_value=True):
+            _notify_mission_result(
+                "digest", str(tmp_path), str(stdout),
+                start_time=int(time.time()), exit_code=0,
+                outbox_baseline_mtime=None,
+            )
+
+        assert outbox.read_text() == "the agent already wrote this\n"

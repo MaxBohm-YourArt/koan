@@ -1412,7 +1412,24 @@ def _should_forward_result(mission_title: str, result_text: str) -> Tuple[bool, 
         marker in lowered_title for marker in markers if marker
     )
 
-    return (is_alert or is_customer_facing, is_alert)
+    # A report marker is self-sufficient: the mission asked for its output to be
+    # published as a report surface, so it must reach the outbox even when the
+    # mission is neither an alert nor an opt-in skill. Without this, delivery
+    # depends on the agent remembering to write outbox.md itself — which it does
+    # inconsistently, losing the report silently when it forgets.
+    return (is_alert or is_customer_facing or _carries_report(body), is_alert)
+
+
+def _carries_report(body: str) -> bool:
+    """Whether a result body is a report destined for a report surface."""
+    try:
+        from app.outbox_manager import has_report_marker
+        return has_report_marker(body)
+    # Never let a marker check decide a mission's fate: on any failure fall back
+    # to the pre-existing alert/opt-in rules.
+    except Exception as e:
+        _log_runner("error", f"Report marker check failed: {e}")
+        return False
 
 
 def _notify_mission_result(
@@ -1485,7 +1502,13 @@ def _notify_mission_result(
         prefix_line = f"{icon} {title_short}" if title_short else icon
 
         body = result_text.strip()
-        msg = f"{prefix_line}\n\n{body}\n"
+        if _carries_report(body):
+            # A report is self-describing, and the routing regex is
+            # line-anchored. Forward it bare: the icon + mission-title prefix
+            # would prepend the entire mission prompt to the digest.
+            msg = f"{body}\n"
+        else:
+            msg = f"{prefix_line}\n\n{body}\n"
 
         from app.utils import append_to_outbox
         from app.notify import NotificationPriority

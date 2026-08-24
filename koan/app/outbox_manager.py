@@ -111,6 +111,17 @@ def parse_outbox_report(content: str) -> Tuple[Optional[str], str, str]:
     return key, title, body
 
 
+def has_report_marker(content: str) -> bool:
+    """Whether *content* carries a ``[report:key]`` marker on its own line.
+
+    Exposed so producers of outbox-bound text can recognise a report without
+    duplicating the pattern. Used by ``mission_runner`` to decide that a mission
+    result must be forwarded: delivery would otherwise depend on the agent
+    remembering to write ``outbox.md`` itself.
+    """
+    return _OUTBOX_REPORT_RE.search(content or "") is not None
+
+
 def _title_from_key(key: str) -> str:
     """Derive a human-readable title from a report key."""
     return key.replace("-", " ").replace("_", " ").title()
