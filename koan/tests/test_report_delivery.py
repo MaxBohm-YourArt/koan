@@ -217,3 +217,33 @@ class TestUploadShapeDelivery:
         result, send = _run_kind(provider, "canvas", "silent")
         assert result.handled is True
         send.assert_not_called()
+
+
+class TestPublishedFlag:
+    """`published` must be true whenever a surface was written, independently of
+    whether the caller still has to send the text."""
+
+    def test_upload_full_reports_published(self, env):
+        _, provider = env
+        result, _ = _run_kind(provider, "upload", "full")
+        assert result.published is True
+        assert result.handled is False and result.footer == ""
+
+    def test_upload_pointer_reports_published(self, env):
+        _, provider = env
+        assert _run_kind(provider, "upload", "pointer")[0].published is True
+
+    def test_canvas_modes_report_published(self, env):
+        _, provider = env
+        for mode in ("pointer", "silent", "full"):
+            assert _run_kind(provider, "canvas", mode)[0].published is True, mode
+
+    def test_no_surface_is_not_published(self, env):
+        _, provider = env
+        provider.publish_report.return_value = None
+        assert _run_kind(provider, "upload", "full")[0].published is False
+
+    def test_disabled_is_not_published(self, env):
+        _, provider = env
+        result, _ = _run(provider, enabled=False)
+        assert result.published is False

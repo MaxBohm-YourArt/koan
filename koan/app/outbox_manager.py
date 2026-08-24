@@ -310,7 +310,7 @@ class OutboxManager:
             log("error", f"Report delivery raised for '{key}' — sending as message: {e}")
             return ReportDelivery(handled=False)
 
-        if outcome.handled or outcome.footer:
+        if outcome.published:
             log("outbox", f"Report '{key}' published to channel surface")
         return outcome
 
