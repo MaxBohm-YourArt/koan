@@ -658,3 +658,55 @@ class TestPublishReport:
             "missing_scope", {"error": "missing_scope"},
         )
         assert provider.publish_report("k", "T", "b", surface_id="FGONE") is None
+
+
+class TestCanvasSharing:
+    """A bot-created canvas is private to the bot (`access: owner`, no channels)
+    until explicitly shared — without this the pointer link is dead."""
+
+    @staticmethod
+    def _created(provider, canvas_id="F123"):
+        provider._web_client.canvases_create.return_value = {
+            "ok": True, "canvas_id": canvas_id,
+        }
+        provider._web_client.files_info.return_value = {
+            "ok": True, "file": {"permalink": "https://slack/docs/F123"},
+        }
+
+    def test_a_new_canvas_is_shared_with_the_channel(self, provider):
+        self._created(provider)
+        provider.publish_report("ops-digest", "T", "body")
+
+        kwargs = provider._web_client.canvases_access_set.call_args.kwargs
+        assert kwargs["canvas_id"] == "F123"
+        assert kwargs["channel_ids"] == ["C123"]
+
+    def test_access_is_read_only(self, provider):
+        """The surface is overwritten each run — a human edit would be destroyed."""
+        self._created(provider)
+        provider.publish_report("ops-digest", "T", "body")
+        assert provider._web_client.canvases_access_set.call_args.kwargs[
+            "access_level"] == "read"
+
+    def test_an_updated_canvas_is_not_reshared(self, provider):
+        """Sharing is a create-time concern; re-granting every run is noise."""
+        provider._web_client.canvases_edit.return_value = {"ok": True}
+        provider.publish_report("ops-digest", "T", "body", surface_id="F9")
+        provider._web_client.canvases_access_set.assert_not_called()
+
+    def test_a_failed_share_still_publishes(self, provider):
+        """An unshared canvas is degraded, not broken — the content is safe."""
+        from slack_sdk.errors import SlackApiError
+        self._created(provider)
+        provider._web_client.canvases_access_set.side_effect = SlackApiError(
+            "missing_scope", {"error": "missing_scope"},
+        )
+        ref = provider.publish_report("ops-digest", "T", "body")
+        assert ref is not None
+        assert ref.surface_id == "F123"
+
+    def test_no_channel_id_skips_sharing(self, provider):
+        self._created(provider)
+        provider._channel_id = ""
+        provider.publish_report("ops-digest", "T", "body")
+        provider._web_client.canvases_access_set.assert_not_called()

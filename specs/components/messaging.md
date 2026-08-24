@@ -96,7 +96,7 @@ archaeologise. Every supported platform has a primitive for this:
 
 | Provider | Surface | Requirement |
 |---|---|---|
-| Slack | canvas (`canvases.create` / `canvases.edit` with a whole-document `replace`) | `canvases:write`; `files:read` for the permalink only |
+| Slack | canvas (`canvases.create` / `canvases.edit` with a whole-document `replace`, shared via `canvases.access.set`) | `canvases:write`; `files:read` for the permalink only |
 | Telegram | pinned message (`editMessageText` + `pinChatMessage`) | admin rights to pin |
 | Discord | pinned message, or a thread's starter message | `MANAGE_MESSAGES` |
 | Matrix | replaced event (`m.replace`) + `m.room.pinned_events` | power level to pin |
@@ -111,6 +111,13 @@ archaeologise. Every supported platform has a primitive for this:
   MUST degrade to `send_message` with the full report text. A report is **never
   dropped** because a surface was unavailable. Same fail-open rule as
   `notify_dedup.py`.
+- **A new surface MUST be made reachable.** Platforms create bot-owned documents
+  private to the bot (a Slack canvas comes back `access: owner`, `channels: []`), so a
+  provider that only creates one has published a link nobody can open. Granting the
+  posting channel access is part of creating the surface, and the grant is
+  **read-only** — the surface is overwritten every run, so a human edit would be
+  silently destroyed by the next publish. A failed grant leaves a correct but unshared
+  surface: degraded, not broken, and never a failed publish.
 - **Markdown in, always.** Callers pass Markdown; the provider translates. No
   caller ever passes Slack `mrkdwn`, Telegram HTML, or Matrix formatted bodies.
   `lay_out_markdown` applies before publishing, exactly as it does before sending.
