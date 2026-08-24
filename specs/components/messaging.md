@@ -187,7 +187,14 @@ priority (`_OUTBOX_PRIORITY_RE` in `outbox_manager.py`):
 ```
 
 `parse_outbox_report()` strips and returns `(key, title, body)`, mirroring
-`parse_outbox_priority()`. It tolerates up to 3 leading spaces — the same allowance
+`parse_outbox_priority()`. A marker in a **mission result** is equally sufficient:
+`mission_runner._should_forward_result` forwards any result carrying one to the outbox,
+bare (no icon or mission-title prefix, which would both echo the prompt and break the
+line-anchored match). Delivery MUST NOT depend on the agent choosing to write
+`outbox.md` itself — observed working on one run of a report mission and silently not on
+the next, losing the report. The existing idempotency guard still applies: a result is
+not forwarded when the session already wrote to `outbox.md`, so there is no double
+delivery. It tolerates up to 3 leading spaces — the same allowance
 Markdown gives its own block constructs — so a mission prompt that renders the marker
 indented still routes instead of leaking a literal `[report:…]` line into chat. Absent marker, unsupported provider, or `reports.enabled:
 false` → the content flushes as an ordinary message, byte-for-byte as today. This keeps
