@@ -19,7 +19,13 @@ import time
 from collections import OrderedDict
 from typing import List, Optional
 
-from app.messaging.base import DEFAULT_MAX_MESSAGE_SIZE, Message, MessagingProvider, Update
+from app.messaging.base import (
+    DEFAULT_MAX_MESSAGE_SIZE,
+    Message,
+    MessagingProvider,
+    ReportRef,
+    Update,
+)
 from app.messaging import register_provider
 
 
@@ -257,6 +263,110 @@ class SlackProvider(MessagingProvider):
     def reaction_acknowledges_mission(self) -> bool:
         """On Slack a ✅ reaction is a complete ack; suppress the text reply."""
         return True
+
+    def publish_report(
+        self,
+        key: str,
+        title: str,
+        markdown: str,
+        surface_id: Optional[str] = None,
+    ) -> Optional[ReportRef]:
+        """Publish a report into a Slack canvas, replacing its content.
+
+        A canvas is Slack's persistent-document primitive: it renders natively,
+        survives scrollback, and can be updated in place — which is what makes it
+        the right home for a *snapshot* report like the ops digest.
+
+        Requires the ``canvases:write`` scope. The permalink additionally needs
+        ``files:read``; without it the canvas is still published and only the
+        link is missing.
+
+        Returns None on any failure so the caller falls back to a plain message.
+        """
+        if not self._web_client:
+            return None
+
+        canvas_id = None
+        if surface_id:
+            canvas_id = self._replace_canvas_content(surface_id, markdown)
+
+        if not canvas_id:
+            canvas_id = self._create_canvas(title, markdown)
+
+        if not canvas_id:
+            return None
+
+        return ReportRef(key=key, surface_id=canvas_id, url=self._canvas_url(canvas_id))
+
+    def _replace_canvas_content(self, canvas_id: str, markdown: str) -> Optional[str]:
+        """Replace an existing canvas's whole content.
+
+        Returns the canvas id on success, or None if the canvas is gone (the
+        caller then creates a fresh one — a stale id is a cache miss, not an
+        error) or the edit failed.
+        """
+        try:
+            resp = self._web_client.canvases_edit(
+                canvas_id=canvas_id,
+                changes=[{
+                    "operation": "replace",
+                    "document_content": {"type": "markdown", "markdown": markdown},
+                }],
+            )
+            if resp.get("ok"):
+                return canvas_id
+            error = resp.get("error", "unknown")
+            print(f"[slack] canvases_edit error: {error}", file=sys.stderr)
+            return None
+        except Exception as e:
+            # A deleted or inaccessible canvas is expected and recoverable —
+            # anything else is worth a line in the log.
+            if not self._is_missing_canvas(e):
+                print(f"[slack] canvases_edit failed: {e}", file=sys.stderr)
+            return None
+
+    def _create_canvas(self, title: str, markdown: str) -> Optional[str]:
+        """Create a standalone canvas and return its id, or None on failure."""
+        try:
+            resp = self._web_client.canvases_create(
+                title=title,
+                document_content={"type": "markdown", "markdown": markdown},
+            )
+            canvas_id = resp.get("canvas_id")
+            if canvas_id:
+                return canvas_id
+            print(
+                f"[slack] canvases_create returned no canvas_id "
+                f"(error: {resp.get('error', 'none')}) — is canvases:write granted?",
+                file=sys.stderr,
+            )
+            return None
+        except Exception as e:
+            print(f"[slack] canvases_create failed: {e}", file=sys.stderr)
+            return None
+
+    def _canvas_url(self, canvas_id: str) -> str:
+        """Best-effort permalink for a canvas ("" when unavailable).
+
+        Canvases are files, so the permalink comes from ``files.info``. Missing
+        ``files:read`` is cosmetic, never a publish failure.
+        """
+        try:
+            resp = self._web_client.files_info(file=canvas_id)
+            return str(resp.get("file", {}).get("permalink", "") or "")
+        except Exception as e:
+            print(f"[slack] canvas permalink lookup failed ({canvas_id}): {e} "
+                  f"— is files:read granted?", file=sys.stderr)
+            return ""
+
+    @staticmethod
+    def _is_missing_canvas(error: Exception) -> bool:
+        """Whether a canvases.edit failure means "that canvas no longer exists"."""
+        text = str(error)
+        return any(
+            marker in text
+            for marker in ("canvas_not_found", "file_not_found", "channel_not_found")
+        )
 
     # -- Internal helpers -----------------------------------------------------
 

@@ -7,5 +7,6 @@
 * [Jira Integration](jira-integration.md) - Full reference for controlling Kōan via `@mention` commands in Jira issue comments, including project mapping, ADF parsing, and coexistence with GitHub.
 * [Matrix Setup Guide](matrix.md) - Setup guide for using a Matrix homeserver as Kōan's messaging provider via the Client-Server HTTP API.
 * [Messaging level (bridge verbosity)](messaging-level.md) - Explains the `messaging.level` setting (`normal`/`debug`) that controls how much lifecycle/progress chatter Kōan's Telegram/Slack bridge sends versus only logs.
+* [Report surfaces (persistent reports in the channel)](reports.md) - How to publish recurring reports — the ops digest, /report, audits — into a persistent, updatable channel document (a Slack canvas) instead of a new chat message each time.
 * [Slack Setup Guide](slack.md) - Step-by-step guide to configuring Kōan with Slack (Socket Mode app setup, scopes, env vars) plus Slack-specific behavior like threading, reactions, and the assistant \"thinking\" status.
 * [Telegram Setup Guide](telegram.md) - Step-by-step guide to configuring Kōan with Telegram (bot creation, chat ID, env vars), including group-chat privacy-mode setup and troubleshooting.

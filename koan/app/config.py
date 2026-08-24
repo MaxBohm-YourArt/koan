@@ -3370,3 +3370,43 @@ def is_rtk_awareness_enabled() -> bool:
         return False
     raw = _get_rtk_dict().get("awareness", True)
     return bool(raw) if isinstance(raw, bool) else True
+
+
+def get_report_surfaces_enabled() -> bool:
+    """Whether reports may be published to a persistent channel surface.
+
+    Config key: messaging.reports.enabled (default: False)
+
+    Opt-in by design: upgrading Kōan must not change any operator's messaging
+    behaviour until they have granted the provider scope this needs (see
+    ``specs/components/messaging.md``).
+    """
+    config = _load_config()
+    messaging_cfg = config.get("messaging", {})
+    if not isinstance(messaging_cfg, dict):
+        return False
+    reports_cfg = messaging_cfg.get("reports", {})
+    if isinstance(reports_cfg, dict):
+        return bool(reports_cfg.get("enabled", False))
+    return False
+
+
+def get_report_notify_mode() -> str:
+    """How the channel is told that a report surface was updated.
+
+    Config key: messaging.reports.notify (one of: pointer, silent, full)
+
+    - ``pointer`` (default) — post a short title + link message.
+    - ``silent``  — update the surface only; no message at all.
+    - ``full``    — post the whole report as a message *as well as* updating
+                    the surface (useful while migrating).
+    """
+    config = _load_config()
+    messaging_cfg = config.get("messaging", {})
+    if isinstance(messaging_cfg, dict):
+        reports_cfg = messaging_cfg.get("reports", {})
+        if isinstance(reports_cfg, dict) and "notify" in reports_cfg:
+            mode = str(reports_cfg["notify"]).strip().lower()
+            if mode in ("pointer", "silent", "full"):
+                return mode
+    return "pointer"

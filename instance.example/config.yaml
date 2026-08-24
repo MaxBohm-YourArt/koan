@@ -393,6 +393,17 @@ contemplative_chance: 10
 # messaging:
 #   level: normal
 
+# Report surfaces (optional, default off)
+# Publish recurring reports (ops digest, /report, audits) into a persistent,
+# updatable channel document instead of a new message each run. Requires the
+# provider's document permission (Slack: canvases:write, then reinstall the app).
+# Falls back to an ordinary message whenever the surface is unavailable — a
+# report is never dropped. See docs/messaging/reports.md.
+# messaging:
+#   reports:
+#     enabled: false      # true to publish to a channel surface
+#     notify: pointer     # pointer (title + link) | silent | full
+
 # Telegram
 # NOTE: Prefer setting these in .env (KOAN_TELEGRAM_TOKEN, KOAN_TELEGRAM_CHAT_ID)
 # These config values are only used if the env vars are not set.
