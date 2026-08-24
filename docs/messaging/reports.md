@@ -45,7 +45,7 @@ nothing breaks: reports simply keep arriving as ordinary messages.
 
 | Provider | Surface | Requires |
 |---|---|---|
-| Slack | Canvas | `canvases:write` (+ `files:read` for the link) |
+| Slack | Canvas, shared read-only with the channel | `canvases:write` (+ `files:read` for the link) |
 | Telegram | — | *not yet implemented; falls back to a message* |
 | Discord | — | *not yet implemented; falls back to a message* |
 | Matrix | — | *not yet implemented; falls back to a message* |
@@ -90,6 +90,10 @@ ordinary message:
 | Scope missing / not reinstalled | Plain message, error logged |
 | Stored surface deleted by a human | A fresh surface is created |
 | Publish fails for any other reason | Plain message, error logged |
+
+The canvas is shared **read-only** with the channel Kōan posts to, automatically, at
+creation time. Read-only is deliberate: the surface is overwritten on every run, so any
+edit you made in it would vanish at the next publish. Annotate the vault copy instead.
 
 Surface ids live in `instance/.report-surfaces.json`. It's a cache — delete it and
 Kōan creates new surfaces on the next run. Deleting a canvas in Slack is safe for

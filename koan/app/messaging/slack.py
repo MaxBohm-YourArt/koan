@@ -334,6 +334,10 @@ class SlackProvider(MessagingProvider):
             )
             canvas_id = resp.get("canvas_id")
             if canvas_id:
+                # A bot-created canvas is private to the bot (`access: owner`,
+                # `channels: []`) — without this the permalink Kōan posts is dead
+                # for everyone but itself.
+                self._share_canvas(canvas_id)
                 return canvas_id
             print(
                 f"[slack] canvases_create returned no canvas_id "
@@ -344,6 +348,37 @@ class SlackProvider(MessagingProvider):
         except Exception as e:
             print(f"[slack] canvases_create failed: {e}", file=sys.stderr)
             return None
+
+    def _share_canvas(self, canvas_id: str) -> bool:
+        """Grant the posting channel read access to a newly created canvas.
+
+        Read-only on purpose: a report surface is overwritten on every run, so a
+        human edit would be silently destroyed by the next publish. Callers that
+        want an editable document should not be using a report surface.
+
+        Only needed at create time — access persists across later edits. A
+        failure leaves an unshared-but-correct canvas, which is degraded rather
+        than broken, so it never fails the publish.
+        """
+        if not self._channel_id:
+            return False
+        try:
+            resp = self._web_client.canvases_access_set(
+                canvas_id=canvas_id,
+                access_level="read",
+                channel_ids=[self._channel_id],
+            )
+            if resp.get("ok"):
+                return True
+            print(f"[slack] canvases_access_set error: {resp.get('error', 'unknown')} "
+                  f"— canvas {canvas_id} stays private to the bot",
+                  file=sys.stderr)
+            return False
+        except Exception as e:
+            print(f"[slack] canvases_access_set failed ({canvas_id}): {e} "
+                  f"— the report link will not open for anyone else",
+                  file=sys.stderr)
+            return False
 
     def _canvas_url(self, canvas_id: str) -> str:
         """Best-effort permalink for a canvas ("" when unavailable).
