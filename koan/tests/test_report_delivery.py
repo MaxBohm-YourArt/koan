@@ -191,9 +191,17 @@ class TestUploadShapeDelivery:
         assert result.handled is True
         send.assert_not_called()
 
-    def test_upload_full_still_asks_for_the_text_with_a_link(self, env):
+    def test_upload_full_asks_for_the_text_without_a_footer(self, env):
+        """The artifact card sits beside the message and already has the link."""
         _, provider = env
-        result, send = _run_kind(provider, "upload", "full")
+        result, _ = _run_kind(provider, "upload", "full")
+        assert result.handled is False
+        assert result.footer == ""
+
+    def test_canvas_full_keeps_the_footer(self, env):
+        """Nothing else in the channel would show a canvas link."""
+        _, provider = env
+        result, _ = _run_kind(provider, "canvas", "full")
         assert result.handled is False
         assert "https://slack/docs/F1" in result.footer
 

@@ -58,8 +58,15 @@ nothing breaks: reports simply keep arriving as ordinary messages.
 
 With `surface: upload` the artifact card **is** the channel message, so `pointer` posts
 nothing extra and `silent` cannot be honoured — suppressing the card would make the
-artifact invisible. The table below describes `canvas`; for `upload`, only `full` differs
-from the default.
+artifact invisible.
+
+**Use `full` with `upload`.** A shared file's own message has empty text, so `pointer`
+leaves you a card with no readable preview — you would have to open it every morning to
+see what needs you. `full` posts the report text *and* the card: glance in the channel,
+archive in the card. (No footer link is added, because the card beside it already is one.)
+
+The table below describes `canvas`, where the publish is silent and `pointer` is the
+right default.
 
 | Mode | Behaviour |
 |---|---|
