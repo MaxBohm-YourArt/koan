@@ -12,6 +12,7 @@ import pytest
 # Imported so `patch("app.report_delivery.deliver_report")` can resolve the
 # attribute — outbox_manager imports it lazily inside the flush path.
 import app.report_delivery  # noqa: F401
+from app.report_delivery import ReportDelivery
 from app.outbox_manager import OutboxManager, parse_outbox_report
 
 
@@ -108,7 +109,7 @@ class TestFlushRouting:
         mgr, outbox_file, _ = flush_env
         outbox_file.write_text("[report:ops-digest] Ops Digest\n## ACT TODAY\n- merge")
 
-        with patch("app.report_delivery.deliver_report", return_value=True) as deliver, \
+        with patch("app.report_delivery.deliver_report", return_value=ReportDelivery(True)) as deliver, \
              patch("app.outbox_manager.send_telegram") as send:
             mgr.flush()
 
@@ -123,7 +124,7 @@ class TestFlushRouting:
         mgr, outbox_file, _ = flush_env
         outbox_file.write_text("[report:ops-digest] Ops Digest\n## ACT TODAY")
 
-        with patch("app.report_delivery.deliver_report", return_value=False), \
+        with patch("app.report_delivery.deliver_report", return_value=ReportDelivery(False)), \
              patch("app.outbox_manager.send_telegram", return_value=True) as send:
             mgr.flush()
 
@@ -134,7 +135,7 @@ class TestFlushRouting:
         mgr, outbox_file, _ = flush_env
         outbox_file.write_text("[report:ops-digest] Ops Digest\nbody")
 
-        with patch("app.report_delivery.deliver_report", return_value=False), \
+        with patch("app.report_delivery.deliver_report", return_value=ReportDelivery(False)), \
              patch("app.outbox_manager.send_telegram", return_value=True) as send:
             mgr.flush()
 
@@ -145,7 +146,7 @@ class TestFlushRouting:
         mgr, outbox_file, _ = flush_env
         outbox_file.write_text("[report:ops-digest] Ops Digest\n## VERBATIM")
 
-        with patch("app.report_delivery.deliver_report", return_value=False), \
+        with patch("app.report_delivery.deliver_report", return_value=ReportDelivery(False)), \
              patch("app.outbox_manager.send_telegram", return_value=True) as send, \
              patch.object(mgr, "_format_message") as fmt:
             mgr.flush()
@@ -170,7 +171,7 @@ class TestFlushRouting:
             "[priority:urgent]\n[report:ops-digest] Ops Digest\nbody"
         )
 
-        with patch("app.report_delivery.deliver_report", return_value=True) as deliver:
+        with patch("app.report_delivery.deliver_report", return_value=ReportDelivery(True)) as deliver:
             mgr.flush()
 
         from app.notify import NotificationPriority
@@ -180,7 +181,7 @@ class TestFlushRouting:
         mgr, outbox_file, _ = flush_env
         outbox_file.write_text("[report:ops-digest] T\nbody")
 
-        with patch("app.report_delivery.deliver_report", return_value=True):
+        with patch("app.report_delivery.deliver_report", return_value=ReportDelivery(True)):
             mgr.flush()
 
         assert not mgr.staging_path.exists()
@@ -202,7 +203,7 @@ class TestFlushRouting:
         mgr, outbox_file, _ = flush_env
         outbox_file.write_text("[report:ops-digest] T\nmerge #463")
 
-        with patch("app.report_delivery.deliver_report", return_value=True) as deliver, \
+        with patch("app.report_delivery.deliver_report", return_value=ReportDelivery(True)) as deliver, \
              patch.object(
                  OutboxManager, "_expand_github_refs",
                  return_value="merge https://gh/x/pull/463",
@@ -230,3 +231,28 @@ class TestMarkerIndentTolerance:
     def test_a_tab_indent_is_not_a_marker(self):
         key, _, _ = parse_outbox_report("\t[report:ops-digest] T\nbody")
         assert key is None
+
+
+class TestFullModeMessage:
+    def test_footer_is_appended_to_the_message(self, flush_env):
+        mgr, outbox_file, _ = flush_env
+        outbox_file.write_text("[report:ops-digest] T\n## ACT TODAY")
+        outcome = ReportDelivery(False, footer="\n\n— [report surface updated](https://x)")
+
+        with patch("app.report_delivery.deliver_report", return_value=outcome), \
+             patch("app.outbox_manager.send_telegram", return_value=True) as send:
+            mgr.flush()
+
+        sent = send.call_args[0][0]
+        assert "## ACT TODAY" in sent
+        assert "https://x" in sent
+
+    def test_no_footer_leaves_the_message_untouched(self, flush_env):
+        mgr, outbox_file, _ = flush_env
+        outbox_file.write_text("[report:ops-digest] T\n## ACT TODAY")
+
+        with patch("app.report_delivery.deliver_report", return_value=ReportDelivery(False)), \
+             patch("app.outbox_manager.send_telegram", return_value=True) as send:
+            mgr.flush()
+
+        assert send.call_args[0][0] == "## ACT TODAY"

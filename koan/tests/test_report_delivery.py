@@ -35,7 +35,7 @@ class TestEnableGate:
     def test_disabled_never_touches_the_provider(self, env):
         _, provider = env
         result, send = _run(provider, enabled=False)
-        assert result is False
+        assert result.handled is False
         provider.publish_report.assert_not_called()
         send.assert_not_called()
 
@@ -44,7 +44,7 @@ class TestNotifyModes:
     def test_pointer_posts_a_short_message_with_the_link(self, env):
         _, provider = env
         result, send = _run(provider, mode="pointer")
-        assert result is True
+        assert result.handled is True
         sent = send.call_args[0][0]
         assert "Ops Digest" in sent
         assert "https://slack/docs/F1" in sent
@@ -53,20 +53,20 @@ class TestNotifyModes:
     def test_silent_posts_nothing(self, env):
         _, provider = env
         result, send = _run(provider, mode="silent")
-        assert result is True
+        assert result.handled is True
         send.assert_not_called()
 
     def test_full_publishes_and_asks_the_caller_to_send_the_text(self, env):
         _, provider = env
         result, send = _run(provider, mode="full")
-        assert result is False           # caller still sends the body
+        assert result.handled is False           # caller still sends the body
         provider.publish_report.assert_called_once()   # but the surface updated
 
     def test_pointer_omits_the_link_when_the_provider_has_no_url(self, env):
         _, provider = env
         provider.publish_report.return_value = ReportRef("ops-digest", "F1", url="")
         result, send = _run(provider)
-        assert result is True
+        assert result.handled is True
         assert "\n" not in send.call_args[0][0]
 
 
@@ -75,14 +75,14 @@ class TestFallback:
         _, provider = env
         provider.publish_report.return_value = None
         result, send = _run(provider)
-        assert result is False
+        assert result.handled is False
         send.assert_not_called()
 
     def test_provider_exception_falls_back(self, env):
         _, provider = env
         provider.publish_report.side_effect = RuntimeError("boom")
         result, _ = _run(provider)
-        assert result is False
+        assert result.handled is False
 
     def test_failed_pointer_does_not_resend_the_whole_report(self, env):
         """The surface already holds the content — a retry would duplicate it."""
@@ -92,7 +92,7 @@ class TestFallback:
              patch("app.config.get_report_surfaces_enabled", return_value=True), \
              patch("app.config.get_report_notify_mode", return_value="pointer"), \
              patch("app.report_delivery.send_telegram", side_effect=RuntimeError("net")):
-            assert deliver_report("ops-digest", "T", "body") is True
+            assert deliver_report("ops-digest", "T", "body").handled is True
 
 
 class TestSurfaceIdReuse:
@@ -128,5 +128,35 @@ class TestSurfaceIdReuse:
         _, provider = env
         monkeypatch.delenv("KOAN_ROOT", raising=False)
         result, _ = _run(provider)
-        assert result is True
+        assert result.handled is True
         assert provider.publish_report.call_args[0][3] is None
+
+
+class TestFullModeFooter:
+    """`full` mode must carry the surface link, or there is no way to tell from
+    the channel whether the surface actually updated."""
+
+    def test_full_mode_returns_a_link_footer(self, env):
+        _, provider = env
+        result, _ = _run(provider, mode="full")
+        assert result.handled is False
+        assert "https://slack/docs/F1" in result.footer
+
+    def test_footer_is_omitted_when_the_provider_exposes_no_url(self, env):
+        from app.messaging.base import ReportRef
+        _, provider = env
+        provider.publish_report.return_value = ReportRef("ops-digest", "F1", url="")
+        result, _ = _run(provider, mode="full")
+        assert result.handled is False
+        assert result.footer == ""
+
+    def test_pointer_mode_has_no_footer(self, env):
+        _, provider = env
+        result, _ = _run(provider, mode="pointer")
+        assert result.footer == ""
+
+    def test_unavailable_surface_has_no_footer(self, env):
+        _, provider = env
+        provider.publish_report.return_value = None
+        result, _ = _run(provider)
+        assert result.footer == ""

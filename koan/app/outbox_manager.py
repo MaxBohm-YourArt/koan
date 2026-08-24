@@ -241,15 +241,19 @@ class OutboxManager:
             # formatter"). Bare #123 refs are still expanded — that is enrichment,
             # not rewriting, and a canvas benefits from it as much as a message.
             report_body = self._expand_github_refs(report_body, report_body)
-            if self._deliver_report(report_key, report_title, report_body, priority):
+            outcome = self._deliver_report(
+                report_key, report_title, report_body, priority,
+            )
+            if outcome.handled:
                 # Deliberately not recorded in conversation history: a surface
                 # update is not something Kōan "said", and a full digest would
                 # crowd out real dialogue in the chat context window.
                 staging.unlink(missing_ok=True)
                 return
-            # Surface unavailable — send the report as an ordinary message.
+            # Send the report as an ordinary message. `footer` is non-empty when
+            # a surface *was* updated (notify: full) and carries its link.
             clean_content = report_body
-            formatted = report_body
+            formatted = report_body + outcome.footer
         else:
             formatted = self._format_message(clean_content)
             formatted = self._expand_github_refs(formatted, clean_content)
@@ -287,26 +291,28 @@ class OutboxManager:
 
     def _deliver_report(
         self, key: str, title: str, body: str, priority: NotificationPriority
-    ) -> bool:
+    ) -> "ReportDelivery":
         """Route a report to its persistent surface.
 
-        Returns False whenever the caller must still send ``body`` as an ordinary
-        message — surfaces disabled, provider without the capability, publish
-        failure, an unexpected error, or the deliberate ``notify: full`` mode. A
-        report is never dropped because a surface was unavailable.
+        ``handled=False`` means the caller must still send ``body`` (plus the
+        result's ``footer``) as an ordinary message — surfaces disabled, provider
+        without the capability, publish failure, an unexpected error, or the
+        deliberate ``notify: full`` mode. A report is never dropped because a
+        surface was unavailable.
         """
+        from app.report_delivery import ReportDelivery
         try:
             from app.report_delivery import deliver_report
-            delivered = bool(deliver_report(key, title, body, priority=priority))
+            outcome = deliver_report(key, title, body, priority=priority)
         # Broad by design: report delivery is best-effort decoration over the
         # message path, and must never be able to lose outbox content.
         except Exception as e:
             log("error", f"Report delivery raised for '{key}' — sending as message: {e}")
-            return False
+            return ReportDelivery(handled=False)
 
-        if delivered:
+        if outcome.handled or outcome.footer:
             log("outbox", f"Report '{key}' published to channel surface")
-        return delivered
+        return outcome
 
     def requeue(self, content: str):
         """Re-append content to outbox.md after a failed send attempt.
