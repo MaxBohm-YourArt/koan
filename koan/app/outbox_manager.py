@@ -74,8 +74,11 @@ def parse_outbox_priority(content: str) -> Tuple[NotificationPriority, str]:
 # A report marker routes content to a persistent surface instead of the message
 # stream. Keys are lowercase by contract so ordinary prose mentioning
 # "[report:...]" is never mistaken for a directive.
+# Up to 3 leading spaces are tolerated, the same allowance Markdown gives its own
+# block constructs (cf. markdown_layout's fence/heading patterns). A mission
+# prompt that shows the marker indented must not silently fail to route.
 _OUTBOX_REPORT_RE = re.compile(
-    r'^\[report:([a-z0-9][a-z0-9._-]{0,63})\][ \t]*(.*)$\n?', re.MULTILINE,
+    r'^[ ]{0,3}\[report:([a-z0-9][a-z0-9._-]{0,63})\][ \t]*(.*)$\n?', re.MULTILINE,
 )
 
 
