@@ -154,9 +154,10 @@ choice.
   no pointer is needed and `silent` is not achievable — the card cannot be suppressed
   without making the artifact invisible. A `full`-mode footer is likewise omitted for
   `upload`: the card sits beside the message and already carries the link. Note the
-  corollary — a shared artifact's own message has **empty text**, so `upload` + `pointer`
-  gives no readable preview in the channel; `full` is the mode that preserves an
-  at-a-glance read. `messaging.reports.notify`
+  corollary — a shared artifact's own message has **empty text**, but the platform
+  renders a preview of the artifact on the card (Slack: 16 of 21 lines on a measured
+  digest), so `upload` + `pointer` still reads at a glance and `full` duplicates the
+  content rather than adding to it. `messaging.reports.notify`
   selects `pointer` (default) / `silent` / `full`.
 - **Surface IDs are cache, not truth.** The `key → surface_id` map persists to
   `instance/.report-surfaces.json` via `utils.atomic_write()`, owned by
