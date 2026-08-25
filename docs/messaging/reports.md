@@ -60,10 +60,12 @@ With `surface: upload` the artifact card **is** the channel message, so `pointer
 nothing extra and `silent` cannot be honoured — suppressing the card would make the
 artifact invisible.
 
-**Use `full` with `upload`.** A shared file's own message has empty text, so `pointer`
-leaves you a card with no readable preview — you would have to open it every morning to
-see what needs you. `full` posts the report text *and* the card: glance in the channel,
-archive in the card. (No footer link is added, because the card beside it already is one.)
+**Use `pointer` with `upload`** — the default. A shared file's own message has empty
+*text*, but Slack renders a preview of the file itself on the card: measured at **16 of
+21 lines** on a real digest, which covered the entire first section. So the card alone is
+the at-a-glance read, and `full` would post the same content twice. Reach for `full` only
+if your reports are long enough that the truncated preview hides something that matters.
+(`full` adds no footer link under `upload` — the card beside it already is one.)
 
 The table below describes `canvas`, where the publish is silent and `pointer` is the
 right default.
